@@ -161,6 +161,15 @@ cersei::tools::orchestration() // SendMessage, Tasks (6 tools), Worktree
 
 Custom tools in 10 lines:
 
+> The `#[derive(Tool)]` macro generates code with `#[async_trait::async_trait]` and `cercei-tools`, to make it work add both of it to depending on your project.
+>  ```toml
+> async-trait = "0.1"
+> cersei = { path = "path/to/cersei" } # or git
+> cersei-tools = { path = "path/to/cersei/crates/cersei-tools" }
+> ```
+> or write `use cersei::tools as cersei_tools;` when using `derive(Tool)`;
+    
+
 ```rust
 #[derive(Tool)]
 #[tool(name = "search", description = "Search docs", permission = "read_only")]
