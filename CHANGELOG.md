@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.1.9] - 2026-05-17
+
+### Added
+
+- **New crate: `cersei-vms`.** Sandbox & VM isolation layer for coding agents. Lets the agent run shell commands and edit files inside isolated environments instead of on the host, and lets multiple parallel agents run in separate sandboxes that share state through host-mediated primitives. 15th workspace crate. Docs: [VMs Overview](https://cersei.pacifio.dev/docs/vms-overview) · [API](https://cersei.pacifio.dev/docs/vms-api) · [Cookbook](https://cersei.pacifio.dev/docs/vms-cookbook).
+  - **Core traits** in `cersei_vms::runtime` — `SandboxRuntime`, `Sandbox`, plus `Commands` and `Filesystem` per-sandbox surfaces. Mirrors E2B's `Sandbox` / `Commands` / `Filesystem` shape almost 1:1, so existing E2B-based mental models port directly.
+  - **Backends.** `LocalProcessRuntime` (always-on, no isolation — for tests and `--sandbox local`) and `DockerRuntime` (real container isolation via the local `docker` CLI; feature `backend-docker`, default-on). Phase 1 ships without `bollard` / HTTP-over-UDS — we shell out, which works identically on macOS, Linux, and Windows wherever Docker is installed.
+  - **Cross-sandbox primitives** in `cersei_vms::primitives`. `Volume` registry (host-side dirs bind-mounted into N sandboxes), `Mailbox` (broadcast pub/sub by topic, backed by `tokio::sync::broadcast`), `KvStore` (DashMap + optional journal file, versioned CAS via `cas(key, expected_version, value)`). All three are reachable from sandboxes through a host-side broker; sandboxes never need direct network links between each other.
+  - **First-party snapshots.** `Sandbox::snapshot() -> SnapshotId` and `SandboxRuntime::restore(&SnapshotId) -> SandboxHandle`. Docker implementation = `docker commit` for FS state + a JSON `SnapshotManifest` (env, mounts, mailbox topics, KV checkpoint) in `~/.cersei/vms/snapshots/`. Local implementation = directory copy. Snapshots survive process restart.
+  - **`cersei-envd` binary** (feature `envd`, default-on). Tiny Rust JSON-RPC 2.0 daemon meant to be baked into container images for richer in-VM ops; talks to the host over a bind-mounted Unix socket at `/run/cersei-envd.sock`. Methods: `process.run`, `fs.{read,write,list,stat,mkdir,remove}`, `ping`, `info`. Reuses the JSON-RPC wire shape from `cersei-mcp/src/jsonrpc.rs`.
+  - **Reference image.** `crates/cersei-vms/docker/Dockerfile` produces `cersei/sandbox-base:latest` — Alpine 3.20 + `bash` + `git` + `cersei-envd`, ~8 MB.
+  - **Tests.** 9 passing — 4 LocalProcessRuntime (incl. snapshot round-trip preserving FS + KV state), 2 mailbox (cross-sandbox pub/sub + topic isolation), 3 KvStore (concurrent writes, CAS rejecting stale writers, journal-survives-reopen).
+- **cersei-tools integration** behind a new `vms` feature.
+  - **Transparent routing in `BashTool`.** When `ctx.extensions.get::<Arc<dyn cersei_vms::Sandbox>>()` is `Some`, the bash tool routes `RunRequest` through the sandbox instead of running on the host. Falls back to the existing local `pproc::exec()` path otherwise — fully backward-compatible for users not on the feature.
+  - **New agent-facing tools** in `cersei_tools::vm_tools`: `SendVmMessage` / `RecvVmMessage` (cross-sandbox pub/sub with bounded wait timeout), `SharedStateGet` / `SharedStateSet` (KV with optional CAS), `SandboxSnapshot`. All gated by the existing `PermissionLevel` system (`Write` / `ReadOnly`).
+- **`cersei` facade** — `cersei::vms` re-export behind a new default-on `vms` feature, so `use cersei::prelude::*` gains the sandbox surface without an extra import.
+
+### Changed
+
+- Workspace bumped to **0.1.9** (15-crate layout now includes `cersei-vms`).
+- `Cargo.toml` workspace `members` and `[workspace.dependencies]` updated to register `cersei-vms` alongside the existing 14 crates.
+
+### Deferred to 0.1.10
+
+- **Agent-builder injection.** `AgentBuilder::with_sandbox(handle)` / `with_sandbox_allocator(alloc)` so each `Agent` (or each child of a delegate batch) lands inside its own sandbox automatically, without callers hand-stuffing `extensions`. Phase 1 leaves this as a call-site responsibility while we land the right type-shape (needs a generic extension-provider so `cersei-agent` doesn't permanently depend on `cersei-vms`).
+- **`cersei-agent::delegate` per-task allocator.** Wire `Option<Arc<dyn SandboxAllocator>>` into `DelegateConfig` so each parallel worker gets a fresh sandbox + shared Volume/Mailbox.
+- **abstract-cli surface.** `--sandbox <local|docker>` flag and `/vm` slash command (list / inspect / kill sandboxes attached to the current session).
+- **Other backends.** `FirecrackerRuntime` (Linux-only microVMs), `E2bRuntime` (remote E2B API), `VercelSandboxRuntime`.
+- **Phase 2 lifecycle.** `docker pause` / `unpause` on `DockerRuntime`, incremental snapshots, snapshot garbage collection, bi-directional stdin streaming on `Commands::stream`.
+
 ## [0.1.8] - 2026-04-25
 
 ### Added

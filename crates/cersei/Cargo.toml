@@ -20,6 +20,7 @@ cersei-agent = { workspace = true }
 cersei-memory = { workspace = true }
 cersei-hooks = { workspace = true }
 cersei-mcp = { workspace = true }
+cersei-vms = { workspace = true, optional = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -36,6 +37,10 @@ reqwest = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
 futures = { workspace = true }
+
+[features]
+default = ["vms"]
+vms = ["dep:cersei-vms", "cersei-tools/vms"]
 
 [dev-dependencies]
 tokio = { workspace = true }

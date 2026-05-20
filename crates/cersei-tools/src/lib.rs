@@ -30,6 +30,8 @@ pub mod sleep;
 pub mod synthetic_output;
 pub mod tasks;
 pub mod todo_write;
+#[cfg(feature = "vms")]
+pub mod vm_tools;
 pub mod tool_primitives;
 pub mod tool_search;
 pub mod web_fetch;

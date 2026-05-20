@@ -1,0 +1,316 @@
+---
+title: "Sandboxes & VMs — Cookbook"
+description: Recipes for cersei-vms — transparent routing, shared volumes, mailbox-coordinated parallel agents, KV-driven coordination, snapshot-driven retries, end-to-end Docker setup.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+# cersei-vms Cookbook
+
+Hands-on recipes. Each one is a complete, copy-pasteable example. Pair these with the [VMs API](/docs/vms-api) reference.
+
+## Recipe 1 — Transparent routing
+
+Get every `BashTool` invocation in your agent to run inside a sandbox without changing your tool list.
+
+```rust
+use cersei::prelude::*;
+use cersei::vms::prelude::*;
+use std::sync::Arc;
+
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+let runtime = LocalProcessRuntime::new()?;
+let sandbox: Arc<dyn Sandbox> = runtime
+    .create(SandboxOpts::image("cersei/sandbox-base:latest"))
+    .await?;
+
+// Inject the sandbox into the agent's ToolContext.extensions. Until the
+// `AgentBuilder::with_sandbox(...)` helper lands in 0.1.10, do this at the
+// call site that constructs the context:
+let ctx: cersei::tools::ToolContext = build_context_however_you_normally_do();
+ctx.extensions.insert::<Arc<dyn Sandbox>>(sandbox.clone());
+
+// From this point on, every BashTool call routes through the sandbox.
+let agent = Agent::builder()
+    .provider(Anthropic::from_env()?)
+    .tools(cersei::tools::coding())
+    .build()?;
+let out = agent.run("ls -la /work").await?;
+println!("{}", out.text());
+# Ok(())
+# }
+# fn build_context_however_you_normally_do() -> cersei::tools::ToolContext { todo!() }
+```
+
+<Callout type="info">
+The fallback path is preserved: if no `Arc<dyn Sandbox>` is present, `BashTool` runs on the host exactly as before. This makes the `vms` feature **safe to enable** without changing existing behaviour for code that doesn't inject a sandbox.
+</Callout>
+
+---
+
+## Recipe 2 — Shared volume between two sandboxes
+
+Two parallel sandboxes that read and write the same host directory.
+
+```rust
+use cersei::vms::prelude::*;
+use cersei_vms::VolumeRegistry;
+
+# async fn run() -> cersei_vms::Result<()> {
+let runtime = DockerRuntime::new()?;
+let volumes = VolumeRegistry::default_user()?;
+let shared = volumes.create(Some("recipe-2".into()))?;
+
+let mount = VolumeMount {
+    volume_id: VolumeId(shared.host_path.display().to_string()),
+    mount_path: "/shared".into(),
+    read_only: false,
+};
+
+let a = runtime
+    .create(SandboxOpts::image("cersei/sandbox-base:latest").with_volume(mount.clone()))
+    .await?;
+let b = runtime
+    .create(SandboxOpts::image("cersei/sandbox-base:latest").with_volume(mount))
+    .await?;
+
+a.commands().run(RunRequest::new("echo from-a > /shared/note.txt")).await?;
+let out = b.commands().run(RunRequest::new("cat /shared/note.txt")).await?;
+assert_eq!(out.stdout.trim(), "from-a");
+
+a.kill().await?;
+b.kill().await?;
+# Ok(())
+# }
+```
+
+<Callout type="info">
+`VolumeId` here is set directly to the host path because we're targeting `docker -v <host>:<container>` semantics. In Phase 2, when the host broker takes over volume mediation more strictly, this will become `VolumeId::new()` and the runtime will look up `host_path` from the registry. For now, treat `volume_id` as opaque to Docker — the path travels through to the `-v` flag.
+</Callout>
+
+---
+
+## Recipe 3 — Coordinating parallel agents through the Mailbox
+
+Two sandboxes exchange JSON messages over a topic. The coordinator listens.
+
+```rust
+use cersei::vms::prelude::*;
+use serde_json::json;
+
+# async fn run() -> cersei_vms::Result<()> {
+let runtime = LocalProcessRuntime::new()?;
+let mailbox = runtime.mailbox();           // same broker shared by all sandboxes
+
+let worker_a = runtime.create(SandboxOpts::default()).await?;
+let worker_b = runtime.create(SandboxOpts::default()).await?;
+
+// Coordinator subscribes BEFORE publish (broadcast = at-most-once for late subs).
+let mut sub = mailbox.subscribe("workers/results");
+
+// Worker A publishes a result.
+mailbox.publish(
+    "workers/results",
+    worker_a.id().clone(),
+    json!({ "status": "ok", "tests_passed": 42 }),
+)?;
+
+// Worker B publishes too.
+mailbox.publish(
+    "workers/results",
+    worker_b.id().clone(),
+    json!({ "status": "ok", "tests_passed": 17 }),
+)?;
+
+for _ in 0..2 {
+    let env = sub.recv().await?;
+    println!("from {}: {}", env.from, env.payload);
+}
+# worker_a.kill().await?;
+# worker_b.kill().await?;
+# Ok(())
+# }
+```
+
+The same flow is available **from inside the agent loop** via the `SendVmMessage` / `RecvVmMessage` tools — see Recipe 5.
+
+---
+
+## Recipe 4 — `KvStore` with CAS
+
+Race-free counter incremented from N parallel workers.
+
+```rust
+use cersei::vms::prelude::*;
+
+# fn run() -> cersei_vms::Result<()> {
+let kv = KvStore::open("/tmp/cersei-counter.json")?;
+kv.set("counter", b"0".to_vec())?;
+
+// Each worker does optimistic CAS until it wins.
+fn bump(kv: &KvStore) -> cersei_vms::Result<u64> {
+    loop {
+        let current = kv.get("counter");
+        let (value, version) = match &current {
+            Some(e) => (
+                std::str::from_utf8(&e.value).unwrap().parse::<u64>().unwrap(),
+                Some(e.version),
+            ),
+            None => (0, None),
+        };
+        let next = value + 1;
+        if let Some(new) = kv.cas("counter", version, next.to_string().into_bytes())? {
+            return Ok(new.version);
+        }
+        // version mismatch — retry
+    }
+}
+
+let _ = bump(&kv)?;
+# Ok(())
+# }
+```
+
+The same pattern works from agent-land via `SharedStateSet` with an `expected_version` field. CAS failures come back as `ToolResult::error("cas failed: version mismatch")` — the agent retries.
+
+---
+
+## Recipe 5 — Two LLM agents coordinating via the Mailbox tool
+
+Both agents live in their own sandbox. One does discovery, the other does work, and they hand off through a topic.
+
+```rust
+use cersei::prelude::*;
+use cersei::vms::prelude::*;
+use std::sync::Arc;
+
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+let runtime = Arc::new(DockerRuntime::new()?);
+let mailbox = runtime.mailbox();
+let kv = runtime.kv();
+
+// Spin up two sandboxes + register them so the *tool context* in each agent
+// sees the same broker.
+let scout = runtime.create(SandboxOpts::default()).await?;
+let worker = runtime.create(SandboxOpts::default()).await?;
+
+let mut scout_tools = cersei::tools::coding();
+scout_tools.extend(cersei::tools::vm_tools::all_vm_tools());
+
+let mut worker_tools = cersei::tools::coding();
+worker_tools.extend(cersei::tools::vm_tools::all_vm_tools());
+
+// In your context-construction code:
+//   ctx.extensions.insert::<Arc<dyn Sandbox>>(scout.clone());
+//   ctx.extensions.insert::<Mailbox>(mailbox.clone());
+//   ctx.extensions.insert::<KvStore>(kv.clone());
+//
+// The scout agent should be prompted to call SendVmMessage("plans/v1", {...}).
+// The worker agent should be prompted to RecvVmMessage("plans/v1", timeout_ms=10000).
+//
+// Both agents share the *same* mailbox + kv, so messages propagate live.
+# Ok(())
+# }
+```
+
+`cersei::tools::vm_tools::all_vm_tools()` returns boxed tools for `SendVmMessage`, `RecvVmMessage`, `SharedStateGet`, `SharedStateSet`, `SandboxSnapshot`. Permission gating is identical to existing tools (`Write` for publish/set/snapshot, `ReadOnly` for recv/get).
+
+---
+
+## Recipe 6 — Snapshot-driven retry
+
+Build a checkpoint before a risky operation; if it fails, restore from the checkpoint and try a different approach.
+
+```rust
+use cersei::vms::prelude::*;
+
+# async fn run() -> cersei_vms::Result<()> {
+let runtime = DockerRuntime::new()?;
+let sb = runtime.create(SandboxOpts::default()).await?;
+
+// 1. Establish a clean baseline.
+sb.commands().run(RunRequest::new("git clone https://example.com/repo /work/repo")).await?;
+let checkpoint = sb.snapshot().await?;
+
+// 2. Try a risky migration.
+let attempt = sb
+    .commands()
+    .run(RunRequest::new("cd /work/repo && ./scripts/migrate.sh"))
+    .await?;
+
+if attempt.exit_code != 0 {
+    // 3. Roll back to baseline and try a different strategy.
+    sb.kill().await?;
+    let restored = runtime.restore(&checkpoint).await?;
+    restored
+        .commands()
+        .run(RunRequest::new("cd /work/repo && ./scripts/migrate-safe.sh"))
+        .await?;
+}
+# Ok(())
+# }
+```
+
+Snapshots survive process restart because the manifest is persisted to `~/.cersei/vms/snapshots/<id>.json` and (for Docker) the FS state is held in a `cersei-snapshot:<id>` image tag.
+
+---
+
+## Recipe 7 — End-to-end Docker setup
+
+Build the reference image and run a sandbox.
+
+```bash
+# 1. Build the cersei-envd binary (static musl on Linux, dynamic libc on macOS).
+cargo build --release -p cersei-vms --bin cersei-envd --features envd
+
+# 2. Build the reference image.
+docker build \
+    -t cersei/sandbox-base:latest \
+    --build-arg ENVD_BIN=target/release/cersei-envd \
+    crates/cersei-vms/docker/
+
+# 3. Smoke test from the CLI.
+docker run --rm cersei/sandbox-base:latest /usr/local/bin/cersei-envd --help || true
+
+# 4. Smoke test from Rust.
+cargo run --release --example vms_docker_smoke   # in 0.1.10
+```
+
+In 0.1.10, `abstract --sandbox docker "fix the failing tests"` will allocate a sandbox automatically; for now, instantiate `DockerRuntime` and call `.create(...)` from your own glue code.
+
+---
+
+## Recipe 8 — Mounting a project read-only
+
+Useful for code review agents — they can read the repo but can't mutate it.
+
+```rust
+use cersei::vms::prelude::*;
+use std::path::PathBuf;
+
+# async fn run() -> cersei_vms::Result<()> {
+let opts = SandboxOpts::image("cersei/sandbox-base:latest").with_volume(VolumeMount {
+    volume_id: VolumeId(PathBuf::from("/Users/me/projects/myrepo").display().to_string()),
+    mount_path: "/work/repo".into(),
+    read_only: true,
+});
+
+let runtime = DockerRuntime::new()?;
+let sb = runtime.create(opts).await?;
+let out = sb
+    .commands()
+    .run(RunRequest::new("touch /work/repo/test.txt"))
+    .await?;
+assert_ne!(out.exit_code, 0); // read-only mount rejects the write
+# Ok(())
+# }
+```
+
+---
+
+## What's next
+
+- [VMs Overview](/docs/vms-overview) — concepts and architecture.
+- [VMs API](/docs/vms-api) — complete type and method reference.
+- [Changelog](/docs/changelog) — what landed in **0.1.9** vs what's coming in **0.1.10**.

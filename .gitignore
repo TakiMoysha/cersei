@@ -9,7 +9,7 @@ Cargo.lock
 .env.local
 
 # coding agents
-_inspirations
+third-party
 .claude
 
 bench/runner-*.sh
@@ -46,3 +46,6 @@ credentials.*.json
 # Python venvs created by bench harnesses.
 bench/**/.venv/
 bench/**/__pycache__/
+
+# Atlas editor
+.atlas

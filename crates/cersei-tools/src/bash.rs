@@ -84,6 +84,44 @@ impl Tool for BashTool {
 
         let timeout_ms = input.timeout.unwrap_or(120_000).min(600_000);
 
+        // Transparent sandbox routing: if a Sandbox handle is in the tool
+        // context extensions, run the command inside it instead of on the host.
+        #[cfg(feature = "vms")]
+        if let Some(sandbox) =
+            ctx.extensions.get::<std::sync::Arc<dyn cersei_vms::Sandbox>>()
+        {
+            let req = cersei_vms::RunRequest::new(input.command.clone())
+                .timeout(std::time::Duration::from_millis(timeout_ms));
+            return match sandbox.commands().run(req).await {
+                Ok(out) => {
+                    if out.timed_out {
+                        return ToolResult::error(format!(
+                            "Command timed out after {}ms (sandbox: {})",
+                            timeout_ms,
+                            sandbox.id()
+                        ));
+                    }
+                    let mut content = out.stdout;
+                    if !out.stderr.is_empty() {
+                        if !content.is_empty() {
+                            content.push('\n');
+                        }
+                        content.push_str(&out.stderr);
+                    }
+                    if out.exit_code == 0 {
+                        if content.is_empty() {
+                            ToolResult::success("(Bash completed with no output)")
+                        } else {
+                            ToolResult::success(content)
+                        }
+                    } else {
+                        ToolResult::error(format!("Exit code {}\n{}", out.exit_code, content))
+                    }
+                }
+                Err(e) => ToolResult::error(format!("Sandbox exec failed: {e}")),
+            };
+        }
+
         // Wrap command with sentinel-based state capture
         // After the user's command runs, we capture pwd to persist cwd
         const SENTINEL: &str = "__ABSTRACT_STATE_7f2a9b__";

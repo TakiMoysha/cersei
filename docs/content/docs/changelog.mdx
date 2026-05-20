@@ -32,6 +32,34 @@ export function Tag({ type }) {
   );
 }
 
+<Version version="0.1.9" date="2026-05-17">
+
+<Tag type="added" /> **New crate: `cersei-vms`.** Sandbox & VM isolation layer for coding agents. Lets the agent run shell commands and edit files inside isolated environments instead of on the host, and lets multiple parallel agents run in separate sandboxes that share state through host-mediated primitives. Docs: [Overview](/docs/vms-overview) · [API](/docs/vms-api) · [Cookbook](/docs/vms-cookbook).
+
+<Tag type="added" /> **Core traits.** `cersei_vms::runtime::{SandboxRuntime, Sandbox}` plus per-sandbox `Commands` and `Filesystem` surfaces. Mirrors E2B's `Sandbox` / `Commands` / `Filesystem` shape almost 1:1, so E2B mental models port directly.
+
+<Tag type="added" /> **Backends.** `LocalProcessRuntime` (always-on, no isolation — for tests and `--sandbox local`) and `DockerRuntime` (real container isolation via the local `docker` CLI; feature `backend-docker`, default-on). Phase 1 ships without `bollard` / HTTP-over-UDS — `DockerRuntime` shells out to `docker`, which works identically on macOS, Linux, and Windows wherever Docker is installed.
+
+<Tag type="added" /> **Cross-sandbox primitives** in `cersei_vms::primitives`. `Volume` registry (host-side dirs bind-mounted into N sandboxes), `Mailbox` (broadcast pub/sub by topic, backed by `tokio::sync::broadcast`), `KvStore` (DashMap + optional journal file, versioned CAS via `cas(key, expected_version, value)`). All three reachable from sandboxes through a host-side broker; sandboxes never need direct network links between each other.
+
+<Tag type="added" /> **First-party snapshots.** `Sandbox::snapshot() -> SnapshotId` and `SandboxRuntime::restore(&SnapshotId) -> SandboxHandle`. Docker = `docker commit` for FS state + a JSON `SnapshotManifest` (env, mounts, mailbox topics, KV checkpoint) in `~/.cersei/vms/snapshots/`. Local = directory copy. Survives process restart.
+
+<Tag type="added" /> **`cersei-envd` binary** (feature `envd`, default-on). Tiny Rust JSON-RPC 2.0 daemon meant to be baked into container images for richer in-VM ops; talks to the host over a bind-mounted Unix socket at `/run/cersei-envd.sock`. Methods: `process.run`, `fs.{read,write,list,stat,mkdir,remove}`, `ping`, `info`. Reuses the JSON-RPC wire shape from `cersei-mcp/src/jsonrpc.rs`.
+
+<Tag type="added" /> **Reference image.** `crates/cersei-vms/docker/Dockerfile` produces `cersei/sandbox-base:latest` — Alpine 3.20 + `bash` + `git` + `cersei-envd`, ~8 MB.
+
+<Tag type="added" /> **cersei-tools integration** behind a new `vms` feature. **Transparent routing in `BashTool`:** when `ctx.extensions.get::<Arc<dyn cersei_vms::Sandbox>>()` is `Some`, the bash tool routes through the sandbox; otherwise it falls back to the existing local `pproc::exec()` path. New agent-facing tools in `cersei_tools::vm_tools`: `SendVmMessage` / `RecvVmMessage`, `SharedStateGet` / `SharedStateSet`, `SandboxSnapshot`.
+
+<Tag type="added" /> **`cersei` facade** — `cersei::vms` re-export behind a new default-on `vms` feature, so `use cersei::prelude::*` gains the sandbox surface without an extra import.
+
+<Tag type="added" /> **9 tests pass on Phase 1.** 4 LocalProcessRuntime (incl. snapshot round-trip preserving FS + KV state), 2 mailbox (cross-sandbox pub/sub + topic isolation), 3 KvStore (concurrent writes, CAS rejecting stale writers, journal-survives-reopen).
+
+<Tag type="changed" /> Workspace bumped to **0.1.9** (15-crate layout now includes `cersei-vms`).
+
+<Tag type="removed" /> **Deferred to 0.1.10.** `AgentBuilder::with_sandbox(...)`, per-task allocator in `cersei-agent::delegate`, abstract-cli `--sandbox` flag + `/vm` slash command, `FirecrackerRuntime` / `E2bRuntime` / `VercelSandboxRuntime` backends, `docker pause/unpause` and incremental snapshots.
+
+</Version>
+
 <Version version="LongMemEval Benchmark" date="2026-04-24">
 
 <Tag type="added" /> **LongMemEval head-to-head memory benchmark (`bench/long-mem/`).** Runs the 500-question [LongMemEval](https://arxiv.org/abs/2410.10813) (ICLR 2025) dataset — the same benchmark [Mastra](https://mastra.ai/research/observational-memory), [Zep](https://arxiv.org/abs/2501.13956), Supermemory, Hindsight, and EmergenceMem report on — across four Cersei memory configurations. Judge rubric, observer rubric, and context-injection prompts are **verbatim ports** from Mastra's `@mastra/memory` so numbers land on the same public leaderboard. Full methodology + reproduction on [/docs/bench-memory](/docs/bench-memory).

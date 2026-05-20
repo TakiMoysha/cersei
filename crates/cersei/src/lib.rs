@@ -32,6 +32,8 @@ pub use cersei_memory as memory;
 pub use cersei_provider as provider;
 pub use cersei_tools as tools;
 pub use cersei_types as types;
+#[cfg(feature = "vms")]
+pub use cersei_vms as vms;
 
 // Convenience re-exports for common providers
 pub use cersei_provider::anthropic::Anthropic;

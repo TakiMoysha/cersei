@@ -1,0 +1,456 @@
+---
+title: "Sandboxes & VMs — API"
+description: Complete reference for cersei-vms — runtimes, sandbox surface, cross-sandbox primitives, snapshots, and the envd daemon protocol.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+# cersei-vms — API Reference
+
+All public types live under `cersei_vms` and are re-exported as `cersei::vms` behind the default-on `vms` feature.
+
+```rust
+use cersei::vms::prelude::*;
+// or, when working against the crate directly:
+use cersei_vms::prelude::*;
+```
+
+## Feature flags
+
+| Flag | Default | What it enables |
+|---|---|---|
+| `backend-docker` | ✅ | `DockerRuntime` and the per-container shell-out logic. |
+| `backend-firecracker` |   | Reserved — Phase 2 Linux microVM backend. |
+| `backend-e2b` |   | Reserved — Phase 2 remote E2B backend. |
+| `envd` | ✅ | Builds the `cersei-envd` binary target. |
+
+The corresponding `cersei` facade flag is `vms` (default-on), which in turn enables the `vms` feature on `cersei-tools` and re-exports the crate as `cersei::vms`.
+
+---
+
+## `SandboxRuntime`
+
+The top-level trait. Implementations own a pool of sandboxes plus the host-side broker (Mailbox, KvStore, SnapshotRegistry).
+
+```rust
+#[async_trait]
+pub trait SandboxRuntime: Send + Sync {
+    fn name(&self) -> &str;
+    fn capabilities(&self) -> RuntimeCaps;
+
+    async fn create(&self, opts: SandboxOpts) -> Result<SandboxHandle>;
+    async fn get(&self, id: &SandboxId) -> Result<SandboxHandle>;
+    async fn list(&self) -> Result<Vec<SandboxInfo>>;
+
+    async fn restore(&self, snapshot: &SnapshotId) -> Result<SandboxHandle>;
+}
+```
+
+`SandboxHandle` is an alias for `Arc<dyn Sandbox>`.
+
+### `RuntimeCaps`
+
+Backend capability advertisement — lets callers query what's supported without trial-and-error.
+
+```rust
+pub struct RuntimeCaps {
+    pub snapshots: bool,
+    pub pause_resume: bool,
+    pub gpu: bool,
+    pub network_isolation: bool,
+    pub shared_volumes: bool,
+    pub remote: bool,
+}
+```
+
+| Backend | `snapshots` | `pause_resume` | `network_isolation` | `shared_volumes` | `remote` |
+|---|:-:|:-:|:-:|:-:|:-:|
+| `LocalProcessRuntime` | ✅ | ❌ | ❌ | ✅ | ❌ |
+| `DockerRuntime` | ✅ | ❌¹ | ✅ | ✅ | ❌ |
+
+¹ Phase 1 leaves `pause_resume` off on Docker. It's a one-line wrap of `docker pause` / `unpause`, lands in 0.1.10.
+
+### Backends
+
+<Tabs items={['LocalProcessRuntime', 'DockerRuntime']}>
+<Tab value="LocalProcessRuntime">
+
+No real isolation — spawns plain `tokio::process` children of the host. Each sandbox owns a directory under `~/.cersei/vms/local/<sandbox_id>/rootfs/`. `/foo/bar` paths inside the sandbox resolve to `<root>/rootfs/foo/bar` on the host.
+
+```rust
+let rt = LocalProcessRuntime::new()?;          // ~/.cersei/vms/local
+let rt = LocalProcessRuntime::with_root(tmp)?; // arbitrary root, used in tests
+```
+
+Use it for unit tests, dev mode (`--sandbox local`), and as the no-op fallback that keeps existing code paths working.
+
+</Tab>
+<Tab value="DockerRuntime">
+
+Real container isolation. Phase 1 implementation shells out to the local `docker` CLI for every operation — works identically on macOS / Linux / Windows wherever Docker Desktop or Docker Engine is installed, and ships with zero new dependencies (no `bollard`, no UDS-HTTP plumbing).
+
+```rust
+let rt = DockerRuntime::new()?;                            // looks up `docker` on PATH
+let rt = DockerRuntime::with_docker_bin("/opt/bin/docker")?; // custom binary
+```
+
+Lifecycle mapping:
+
+| Trait method | docker call |
+|---|---|
+| `create()` | `docker create [--mount …] [--env …] [-l …] <image> /bin/sh -c "tail -f /dev/null"` then `docker start` |
+| `Commands::run()` | `docker exec [-w …] [-e …] <name> /bin/sh -c <cmd>` |
+| `Commands::stream()` | same, piped |
+| `Filesystem::read/write` | `docker exec cat` for read, `docker cp` for write |
+| `Filesystem::list/stat/mkdir/remove` | `docker exec /bin/sh -c '…'` |
+| `snapshot()` | `docker commit <name> cersei-snapshot:<snap_id>` + JSON manifest |
+| `restore(&snap)` | `create()` with the snapshot image tag |
+| `pause()` / `resume()` | **Phase 2** (`docker pause`/`unpause`) |
+| `kill()` | `docker rm -f <name>` |
+
+</Tab>
+</Tabs>
+
+---
+
+## `Sandbox`
+
+```rust
+#[async_trait]
+pub trait Sandbox: Send + Sync {
+    fn id(&self) -> &SandboxId;
+    fn info(&self) -> SandboxInfo;
+    fn commands(&self) -> Arc<dyn Commands>;
+    fn filesystem(&self) -> Arc<dyn Filesystem>;
+
+    async fn snapshot(&self) -> Result<SnapshotId>;
+    async fn pause(&self) -> Result<()>;
+    async fn resume(&self) -> Result<()>;
+    async fn kill(&self) -> Result<()>;
+}
+```
+
+### `SandboxOpts`
+
+Builder-style options. All fields have sensible defaults — `SandboxOpts::default()` targets `cersei/sandbox-base:latest` with `/work` as the workdir.
+
+```rust
+pub struct SandboxOpts {
+    pub image: String,
+    pub workdir: Option<PathBuf>,
+    pub env: HashMap<String, String>,
+    pub volumes: Vec<VolumeMount>,
+    pub cpu_limit: Option<f32>,
+    pub mem_limit: Option<u64>,
+    pub labels: HashMap<String, String>,
+    pub from_snapshot: Option<SnapshotId>,
+    pub mailbox_topics: Vec<String>,
+}
+```
+
+Convenience builders:
+
+```rust
+let opts = SandboxOpts::image("alpine:3.20")
+    .with_workdir("/work")
+    .with_env("LANG", "C.UTF-8")
+    .with_volume(VolumeMount {
+        volume_id: shared_vol.id.clone(),
+        mount_path: "/shared".into(),
+        read_only: false,
+    })
+    .with_label("cersei.task", "build");
+```
+
+### `SandboxInfo` & `SandboxStatus`
+
+Snapshot of a sandbox's current state, returned by `Sandbox::info()` and `SandboxRuntime::list()`.
+
+```rust
+pub enum SandboxStatus { Creating, Running, Paused, Exited, Killed, Failed }
+
+pub struct SandboxInfo {
+    pub id: SandboxId,
+    pub backend: String,                          // "local" | "docker"
+    pub image: String,
+    pub status: SandboxStatus,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub labels: HashMap<String, String>,
+}
+```
+
+---
+
+## `Commands`
+
+```rust
+#[async_trait]
+pub trait Commands: Send + Sync {
+    async fn run(&self, req: RunRequest) -> Result<RunOutput>;
+    async fn stream(&self, req: RunRequest) -> Result<CommandStream>;
+    async fn signal(&self, pid: u32, sig: Signal) -> Result<()>;
+}
+```
+
+### `RunRequest`
+
+```rust
+pub struct RunRequest {
+    pub command: String,
+    pub workdir: Option<PathBuf>,
+    pub env: HashMap<String, String>,
+    pub timeout: Option<Duration>,    // default 120s, max 600s
+    pub background: bool,
+}
+```
+
+Builder:
+
+```rust
+let req = RunRequest::new("cargo test --quiet")
+    .workdir("/work/myproj")
+    .env("RUST_BACKTRACE", "1")
+    .timeout(Duration::from_secs(300));
+```
+
+### `RunOutput`
+
+```rust
+pub struct RunOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+    pub timed_out: bool,
+    pub pid: Option<u32>,    // populated for background runs
+}
+```
+
+### `CommandStream`
+
+`Pin<Box<dyn Stream<Item = StreamChunk> + Send>>`. Chunks are emitted in order:
+
+```rust
+pub enum StreamChunk {
+    Started { pid: u32 },
+    Stdout  { data: String },   // one line per chunk
+    Stderr  { data: String },
+    Exit    { code: i32 },
+    Error   { message: String },
+}
+```
+
+<Callout type="info">
+Phase 1 streaming is host → sandbox **output-only**. Bi-directional stdin pumping (`Commands::stream_with_stdin(...)`) lands in 0.1.10.
+</Callout>
+
+### `Signal`
+
+POSIX-ish signals. Maps to the numeric value sent over the wire on Linux/macOS.
+
+```rust
+pub enum Signal { Term, Kill, Int, Hup, Usr1, Usr2 }
+```
+
+---
+
+## `Filesystem`
+
+```rust
+#[async_trait]
+pub trait Filesystem: Send + Sync {
+    async fn read(&self, path: &str) -> Result<Bytes>;
+    async fn write(&self, path: &str, data: &[u8]) -> Result<()>;
+    async fn list(&self, path: &str, depth: u32) -> Result<Vec<FileEntry>>;
+    async fn stat(&self, path: &str) -> Result<FileEntry>;
+    async fn watch(&self, path: &str, recursive: bool) -> Result<WatchStream>;
+    async fn mkdir(&self, path: &str, recursive: bool) -> Result<()>;
+    async fn remove(&self, path: &str, recursive: bool) -> Result<()>;
+    async fn upload(&self, local: &Path, remote: &str) -> Result<()>;
+    async fn download(&self, remote: &str, local: &Path) -> Result<()>;
+}
+```
+
+### `FileEntry`
+
+```rust
+pub enum FileKind { File, Dir, Symlink }
+
+pub struct FileEntry {
+    pub path: PathBuf,
+    pub kind: FileKind,
+    pub size: u64,
+    pub modified_unix_ms: i64,
+}
+```
+
+`watch()` returns a `Pin<Box<dyn Stream<Item = FileEvent> + Send>>`. **Not implemented in Phase 1** — both backends return `VmError::Lifecycle("watch not implemented for ... (Phase 1)")`. It's wired up in 0.1.10.
+
+---
+
+## Cross-sandbox primitives
+
+All three live on the **host**, inside whatever process owns the runtime. Sandboxes reach them through a Unix socket bind-mount (Docker) or direct in-process calls (Local). There is no sandbox-to-sandbox network path — everything goes through the broker.
+
+### `Volume` & `VolumeRegistry`
+
+Persistent host-side directories that can be bind-mounted into N sandboxes simultaneously.
+
+```rust
+pub struct Volume {
+    pub id: VolumeId,
+    pub label: Option<String>,
+    pub host_path: PathBuf,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+let reg = VolumeRegistry::default_user()?;       // ~/.cersei/vms/volumes
+let shared = reg.create(Some("build-cache".into()))?;
+// `shared.host_path` is now bind-mountable.
+```
+
+Volumes are mounted by passing a `VolumeMount` to `SandboxOpts::with_volume(...)`.
+
+### `Mailbox` & `MailboxSubscription`
+
+Broadcast pub/sub keyed by string topic. Backed by `tokio::sync::broadcast::channel` — at-most-once semantics, no persistence.
+
+```rust
+let mailbox = Mailbox::new();                          // or with_capacity(N)
+let mut sub = mailbox.subscribe("workers/results");
+mailbox.publish("workers/results", SandboxId::new(), json!({ "ok": true }))?;
+let env: MailboxEnvelope = sub.recv().await?;
+```
+
+`MailboxEnvelope` carries `topic`, `from`, `seq`, `sent_at_unix_ms`, `payload`.
+
+### `KvStore`
+
+Shared K/V map across sandboxes. `DashMap` + an optional journal file. Versioned CAS for race-free updates.
+
+```rust
+let kv = KvStore::open("~/.cersei/vms/kv.json")?;
+let entry = kv.set("progress", b"42".to_vec())?;
+let again = kv.cas("progress", Some(entry.version), b"43".to_vec())?;
+// `Ok(None)` on version mismatch, `Ok(Some(new_entry))` on success.
+```
+
+`KvSnapshot` is the serialisable form, captured as part of every `Sandbox::snapshot()`.
+
+---
+
+## Snapshots
+
+```rust
+pub struct SnapshotManifest {
+    pub id: SnapshotId,
+    pub backend: String,                    // "local" | "docker"
+    pub fs_pointer: String,                 // backend-specific FS state pointer
+    pub original_opts: SandboxOpts,
+    pub volumes: Vec<VolumeMount>,
+    pub kv: KvSnapshot,
+    pub mailbox_topics: Vec<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub labels: HashMap<String, String>,
+}
+```
+
+`fs_pointer` interpretation per backend:
+
+| Backend | `fs_pointer` |
+|---|---|
+| `local` | Relative path under `<root>/_snapshots/` containing a tree copy. |
+| `docker` | An image tag — `cersei-snapshot:<snap_id>` produced by `docker commit`. |
+
+`SnapshotRegistry::open(path)` / `SnapshotRegistry::default_user()` opens (or creates) the host-side store. `SnapshotRegistry::list()` enumerates known manifests.
+
+---
+
+## envd protocol
+
+`cersei-envd` is a tiny Rust JSON-RPC 2.0 daemon designed to live **inside** sandbox container images. It listens on a Unix socket whose path is given by `$CERSEI_ENVD_SOCKET` (default `/run/cersei-envd.sock`). The wire format is **line-delimited JSON** — one request per line, one response per line. Multiple concurrent connections are supported.
+
+Method names live in `cersei_vms::envd::protocol::methods`:
+
+| Method | Params | Returns |
+|---|---|---|
+| `ping` | `{}` | `{ "ok": true, "ts": <unix_ms> }` |
+| `info` | `{}` | `{ "envd_version": "...", "uname": "..." }` |
+| `process.run` | `RunRequest` | `RunOutput` |
+| `fs.read` | `{ "path": "..." }` | `{ "data_b64": "..." }` |
+| `fs.write` | `{ "path": "...", "data_b64": "..." }` | `{ "ok": true, "bytes_written": N }` |
+| `fs.list` | `{ "path": "...", "depth": N }` | `[FileEntry, ...]` |
+| `fs.stat` | `{ "path": "..." }` | `FileEntry` |
+| `fs.mkdir` | `{ "path": "...", "recursive": bool }` | `{ "ok": true }` |
+| `fs.remove` | `{ "path": "...", "recursive": bool }` | `{ "ok": true }` |
+
+Build the daemon binary:
+
+```bash
+cargo build -p cersei-vms --bin cersei-envd --release --features envd
+```
+
+The reference image (`crates/cersei-vms/docker/Dockerfile`) bakes it in at `/usr/local/bin/cersei-envd`.
+
+---
+
+## Errors
+
+```rust
+pub enum VmError {
+    NotFound(String),
+    SnapshotNotFound(String),
+    VolumeNotFound(String),
+    Lifecycle(String),
+    Transport(String),
+    Backend { backend: String, message: String },
+    Timeout(Duration),
+    Permission(String),
+    Snapshot(String),
+    Mailbox(String),
+    Kv(String),
+    Invalid(String),
+    Io(std::io::Error),
+    Json(serde_json::Error),
+    Other(anyhow::Error),
+}
+
+pub type Result<T> = std::result::Result<T, VmError>;
+```
+
+---
+
+## Integration with `cersei-tools`
+
+The `vms` feature on `cersei-tools` adds an optional dependency on `cersei-vms` and wires two integration points.
+
+### Transparent routing in `BashTool`
+
+When `Arc<dyn cersei_vms::Sandbox>` is present in `ToolContext.extensions`, `BashTool::execute()` routes the command through the sandbox instead of `pproc::exec()`:
+
+```rust
+use cersei_tools::ToolContext;
+use cersei_vms::Sandbox;
+use std::sync::Arc;
+
+let sandbox: Arc<dyn Sandbox> = runtime.create(opts).await?;
+let ctx: ToolContext = /* … */;
+ctx.extensions.insert::<Arc<dyn Sandbox>>(sandbox);
+// `BashTool` now runs every command inside the sandbox.
+```
+
+### Agent-facing tools (`cersei_tools::vm_tools`)
+
+| Tool | Permission | Purpose |
+|---|---|---|
+| `SendVmMessage` | `Write` | Publish JSON to a mailbox topic. |
+| `RecvVmMessage` | `ReadOnly` | Block on the next envelope for a topic, with timeout. |
+| `SharedStateGet` | `ReadOnly` | Read a KvStore entry. |
+| `SharedStateSet` | `Write` | Write/CAS a KvStore entry. |
+| `SandboxSnapshot` | `Write` | Snapshot the active sandbox. |
+
+All five require the corresponding primitive (`Mailbox` / `KvStore`) to be registered in `ToolContext.extensions` by the caller, plus an active `Arc<dyn Sandbox>` handle.
+
+---
+
+Continue to the [Cookbook](/docs/vms-cookbook) for end-to-end recipes — shared volumes, parallel agents with mailbox coordination, snapshot-driven retries.
