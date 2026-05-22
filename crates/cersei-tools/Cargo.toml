@@ -10,7 +10,7 @@ description = "Tool trait, built-in tools, and permission system for the Cersei 
 [dependencies]
 cersei-types = { workspace = true }
 cersei-mcp = { workspace = true }
-cersei-lsp = { path = "../cersei-lsp" }
+cersei-lsp = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

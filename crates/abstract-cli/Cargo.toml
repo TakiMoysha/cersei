@@ -18,18 +18,18 @@ graph = ["cersei-memory/graph", "dep:grafeo"]
 
 [dependencies]
 # Cersei SDK
-cersei = { path = "../cersei" }
-cersei-types = { path = "../cersei-types" }
-cersei-provider = { path = "../cersei-provider" }
-cersei-tools = { path = "../cersei-tools" }
-cersei-embeddings = { path = "../cersei-embeddings" }
-cersei-lsp = { path = "../cersei-lsp" }
+cersei = { workspace = true }
+cersei-types = { workspace = true }
+cersei-provider = { workspace = true }
+cersei-tools = { workspace = true }
+cersei-embeddings = { workspace = true }
+cersei-lsp = { workspace = true }
 which = { workspace = true }
-cersei-agent = { path = "../cersei-agent" }
-cersei-memory = { path = "../cersei-memory" }
-cersei-hooks = { path = "../cersei-hooks" }
-cersei-mcp = { path = "../cersei-mcp" }
-cersei-compression = { path = "../cersei-compression" }
+cersei-agent = { workspace = true }
+cersei-memory = { workspace = true }
+cersei-hooks = { workspace = true }
+cersei-mcp = { workspace = true }
+cersei-compression = { workspace = true }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
