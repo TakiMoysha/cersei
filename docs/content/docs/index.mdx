@@ -15,6 +15,22 @@ The complete Rust SDK for building coding agents.
 
 Every building block of a production coding agent — tool execution, LLM streaming, sub-agent orchestration, persistent memory with an embedded graph database, skills, MCP integration — shipped as composable library functions. Build a Claude Code replacement, embed an agent in your app, or create something new.
 
+<Callout type="info">
+Cersei is part of the **[Atlas](https://tryatlas.cc/)** project — the open agent stack. Join the conversation on [Discord](https://discord.gg/GmnFggaPfP).
+</Callout>
+
+### Featured on Dreams of Code
+
+<div className="relative w-full overflow-hidden rounded-xl border border-neutral-800 my-6" style={{ aspectRatio: '16 / 9' }}>
+  <iframe
+    src="https://www.youtube.com/embed/WkpEuogh3OY"
+    title="Cersei on Dreams of Code"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowFullScreen
+    className="absolute inset-0 h-full w-full"
+  />
+</div>
+
 ```rust
 use cersei::prelude::*;
 
@@ -308,9 +324,11 @@ let results = mm.recall("coding style", 5);
 
 ## Install
 
+Cersei is on [crates.io](https://crates.io/crates/cersei):
+
 ```toml
 [dependencies]
-cersei = { git = "https://github.com/pacifio/cersei" }
+cersei = "0.1"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 ```
@@ -318,19 +336,19 @@ anyhow = "1"
 For graph memory:
 
 ```toml
-cersei-memory = { git = "https://github.com/pacifio/cersei", features = ["graph"] }
+cersei-memory = { version = "0.1", features = ["graph"] }
 ```
 
-For the Abstract CLI (complete coding agent) — one-line install on macOS or Linux (detects OS, installs Rust if needed, builds from source, drops the binary on your PATH):
+For the Abstract CLI (complete coding agent) — install directly from crates.io:
+
+```bash
+cargo install abstract-cli
+```
+
+Or one-line install on macOS or Linux without a Rust toolchain (detects OS, installs Rust if needed, builds from source, drops the binary on your PATH):
 
 ```bash
 curl -fsSL https://cersei.pacifio.dev/install-abstract.sh | bash
-```
-
-Or install directly via cargo if you already have a Rust toolchain:
-
-```bash
-cargo install --git https://github.com/pacifio/cersei abstract-cli
 ```
 
 ---

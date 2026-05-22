@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Agent builder, agentic loop, streaming, and reporters for the Cersei SDK"
+readme = "../../README.md"
 
 [dependencies]
 cersei-types = { workspace = true }

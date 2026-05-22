@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "MCP (Model Context Protocol) client for the Cersei SDK"
+readme = "../../README.md"
 
 [dependencies]
 cersei-types = { workspace = true }

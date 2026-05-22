@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Derive macro for the Cersei Tool trait"
+readme = "../../README.md"
 
 [lib]
 proc-macro = true

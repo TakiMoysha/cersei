@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "A high-performance Rust-native CLI coding agent"
+readme = "../../README.md"
 default-run = "abstract"
 
 [[bin]]

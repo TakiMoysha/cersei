@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Provider-agnostic types for the Cersei coding agent SDK"
+readme = "../../README.md"
 
 [dependencies]
 serde = { workspace = true }

@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "LSP client for the Cersei coding agent SDK"
+readme = "../../README.md"
 
 [dependencies]
 tokio = { workspace = true, features = ["process", "io-util", "sync", "time", "rt"] }

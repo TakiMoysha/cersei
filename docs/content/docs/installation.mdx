@@ -3,11 +3,13 @@ title: Installation
 description: Adding Cersei to your Rust project.
 ---
 
-## From GitHub
+## From crates.io
+
+Cersei is published on [crates.io](https://crates.io/crates/cersei) — the standard install path:
 
 ```toml
 [dependencies]
-cersei = { git = "https://github.com/pacifio/cersei" }
+cersei = "0.1"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 ```
@@ -15,7 +17,7 @@ anyhow = "1"
 Or via the CLI:
 
 ```bash
-cargo add cersei --git https://github.com/pacifio/cersei
+cargo add cersei
 cargo add tokio --features full
 cargo add anyhow
 ```
@@ -25,32 +27,56 @@ cargo add anyhow
 Enable the Grafeo graph backend for relationship-aware recall:
 
 ```toml
-cersei-memory = { git = "https://github.com/pacifio/cersei", features = ["graph"] }
+cersei-memory = { version = "0.1", features = ["graph"] }
 ```
 
 ## Optional: Individual Crates
 
-Use specific crates if you only need parts of the SDK:
+Use specific crates if you only need parts of the SDK — every crate is published independently:
 
 ```toml
-cersei-types = { git = "https://github.com/pacifio/cersei" }     # Core types only
-cersei-provider = { git = "https://github.com/pacifio/cersei" }   # LLM providers
-cersei-tools = { git = "https://github.com/pacifio/cersei" }      # Tool system
-cersei-agent = { git = "https://github.com/pacifio/cersei" }      # Agent runtime
-cersei-memory = { git = "https://github.com/pacifio/cersei" }     # Memory backends
-cersei-hooks = { git = "https://github.com/pacifio/cersei" }      # Hooks/middleware
-cersei-mcp = { git = "https://github.com/pacifio/cersei" }        # MCP client
+cersei-types       = "0.1"   # Core types only
+cersei-provider    = "0.1"   # LLM providers
+cersei-tools       = "0.1"   # Tool system
+cersei-tools-derive = "0.1"  # #[derive(Tool)] proc macro
+cersei-agent       = "0.1"   # Agent runtime
+cersei-memory      = "0.1"   # Memory backends
+cersei-hooks       = "0.1"   # Hooks / middleware
+cersei-mcp         = "0.1"   # MCP client
+cersei-lsp         = "0.1"   # LSP client
+cersei-embeddings  = "0.1"   # Embeddings + vector index
+cersei-compression = "0.1"   # Token-killer compression
+cersei-skills      = "0.1"   # agentskills.io registry
+cersei-vms         = "0.1"   # Sandbox / VM isolation
 ```
 
 ## Abstract CLI
 
-Install the reference CLI tool built on Cersei:
+Install the reference CLI tool built on Cersei directly from crates.io:
 
 ```bash
-cargo install --git https://github.com/pacifio/cersei abstract-cli
+cargo install abstract-cli
 ```
 
 This installs the `abstract` binary — a complete coding agent CLI.
+
+### One-line installer
+
+Prefer not to manage a Rust toolchain? On macOS or Linux:
+
+```bash
+curl -fsSL https://cersei.pacifio.dev/install-abstract.sh | bash
+```
+
+Detects your OS, installs Rust if needed, builds from source, and drops the binary on your PATH.
+
+## Tracking `main`
+
+If you need an unreleased fix, point at the GitHub repo instead:
+
+```toml
+cersei = { git = "https://github.com/pacifio/cersei" }
+```
 
 ## Environment Variables
 
