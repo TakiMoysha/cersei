@@ -123,7 +123,7 @@ pub fn analyze_command(source: &str) -> BashAnalysis {
 
         // Push children for traversal
         for i in 0..node.child_count() {
-            if let Some(child) = node.child(i) {
+            if let Some(child) = node.child(i as u32) {
                 stack.push(child);
             }
         }
