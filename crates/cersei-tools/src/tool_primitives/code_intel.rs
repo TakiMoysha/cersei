@@ -347,7 +347,7 @@ pub fn analyze_file(path: &Path, source: &str) -> Option<FileIntel> {
         // Push children for traversal (only top-level for performance)
         if node.child_count() > 0 && is_container_node(kind) {
             for i in 0..node.child_count() {
-                if let Some(child) = node.child(i) {
+                if let Some(child) = node.child(i as u32) {
                     stack.push(child);
                 }
             }
