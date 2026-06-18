@@ -330,7 +330,12 @@ fn handle_key(
         // Backspace
         (_, KeyCode::Backspace) if !state.is_streaming => {
             if state.cursor_pos > 0 {
-                state.cursor_pos -= 1;
+                // Step back by the byte length of the char preceding the cursor.
+                let prev = state.input[..state.cursor_pos]
+                    .chars()
+                    .next_back()
+                    .map_or(0, char::len_utf8);
+                state.cursor_pos -= prev;
                 state.input.remove(state.cursor_pos);
             }
         }
@@ -345,14 +350,22 @@ fn handle_key(
         // Left arrow
         (_, KeyCode::Left) if !state.is_streaming => {
             if state.cursor_pos > 0 {
-                state.cursor_pos -= 1;
+                let prev = state.input[..state.cursor_pos]
+                    .chars()
+                    .next_back()
+                    .map_or(0, char::len_utf8);
+                state.cursor_pos -= prev;
             }
         }
 
         // Right arrow
         (_, KeyCode::Right) if !state.is_streaming => {
             if state.cursor_pos < state.input.len() {
-                state.cursor_pos += 1;
+                let next = state.input[state.cursor_pos..]
+                    .chars()
+                    .next()
+                    .map_or(0, char::len_utf8);
+                state.cursor_pos += next;
             }
         }
 
@@ -405,7 +418,7 @@ fn handle_key(
         // Character input
         (_, KeyCode::Char(c)) if !state.is_streaming => {
             state.input.insert(state.cursor_pos, c);
-            state.cursor_pos += 1;
+            state.cursor_pos += c.len_utf8();
         }
 
         _ => {}
@@ -815,9 +828,12 @@ fn tool_input_summary(name: &str, input: &serde_json::Value) -> String {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    // Count/slice by characters so we never split a multibyte UTF-8 sequence,
+    // which would panic on byte-index slicing.
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max])
+        let head: String = s.chars().take(max).collect();
+        format!("{head}...")
     }
 }

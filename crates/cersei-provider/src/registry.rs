@@ -41,15 +41,45 @@ pub struct ModelEntry {
 
 impl ProviderEntry {
     /// Try to read an API key from the environment using this provider's env key list.
+    ///
+    /// The value is trimmed: launchers that reconstruct a key via command
+    /// substitution (`KEY="$(cat ...)"`) commonly leave a trailing newline,
+    /// which otherwise produces a confusing `401` rather than a clean error.
+    /// Whitespace-only values are treated as absent.
     pub fn api_key_from_env(&self) -> Option<String> {
         for key in self.env_keys {
             if let Ok(val) = std::env::var(key) {
+                let val = val.trim();
                 if !val.is_empty() {
-                    return Some(val);
+                    return Some(val.to_string());
                 }
             }
         }
         None
+    }
+
+    /// Resolve the API base URL, honoring an environment override.
+    ///
+    /// For OpenAI-compatible providers this makes custom/proxy endpoints
+    /// (DeepSeek, OpenRouter, local gateways, etc.) first-class: set
+    /// `<PROVIDER>_BASE_URL` — e.g. `OPENAI_BASE_URL`, `DEEPSEEK_BASE_URL` —
+    /// to redirect requests. `OPENAI_API_BASE` is accepted as a legacy alias
+    /// for the `openai` provider. Falls back to the registered default.
+    pub fn resolved_api_base(&self) -> String {
+        let primary = format!("{}_BASE_URL", self.id.to_uppercase());
+        let mut candidates = vec![primary.as_str()];
+        if self.id == "openai" {
+            candidates.push("OPENAI_API_BASE");
+        }
+        for key in candidates {
+            if let Ok(val) = std::env::var(key) {
+                let val = val.trim().trim_end_matches('/');
+                if !val.is_empty() {
+                    return val.to_string();
+                }
+            }
+        }
+        self.api_base.to_string()
     }
 
     /// Whether this provider requires an API key (Ollama does not).
@@ -335,6 +365,11 @@ pub static REGISTRY: &[ProviderEntry] = &[
                 capabilities: FULL,
             },
             ModelEntry {
+                id: "deepseek-reasoner",
+                context_window: 64_000,
+                capabilities: FULL_THINKING,
+            },
+            ModelEntry {
                 id: "deepseek-coder",
                 context_window: 64_000,
                 capabilities: BASIC,
@@ -517,5 +552,43 @@ fn extract_host_port(api_base: &str) -> Option<String> {
             80
         };
         Some(format!("{authority}:{port}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deepseek_resolves_native_base_by_default() {
+        let entry = lookup("deepseek").unwrap();
+        std::env::remove_var("DEEPSEEK_BASE_URL");
+        let base = entry.resolved_api_base();
+        assert_eq!(base, "https://api.deepseek.com/v1");
+        assert!(!base.contains("api.openai.com"));
+    }
+
+    #[test]
+    fn openai_base_url_override_redirects_target() {
+        // Regression: `OPENAI_BASE_URL` must be honored so the request never
+        // silently lands on api.openai.com when the user points elsewhere.
+        let entry = lookup("openai").unwrap();
+        std::env::set_var("OPENAI_BASE_URL", "https://api.deepseek.com/v1/");
+        let base = entry.resolved_api_base();
+        std::env::remove_var("OPENAI_BASE_URL");
+        assert_eq!(base, "https://api.deepseek.com/v1"); // trailing slash trimmed
+        assert!(!base.contains("api.openai.com"));
+    }
+
+    #[test]
+    fn api_key_is_trimmed_and_blank_is_absent() {
+        let entry = lookup("deepseek").unwrap();
+        // A launcher leaving a trailing newline must not corrupt the key.
+        std::env::set_var("DEEPSEEK_API_KEY", "sk-abc123\n");
+        assert_eq!(entry.api_key_from_env().as_deref(), Some("sk-abc123"));
+        // Whitespace-only is treated as no key set.
+        std::env::set_var("DEEPSEEK_API_KEY", "   ");
+        assert_eq!(entry.api_key_from_env(), None);
+        std::env::remove_var("DEEPSEEK_API_KEY");
     }
 }

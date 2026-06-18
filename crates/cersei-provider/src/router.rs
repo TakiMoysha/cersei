@@ -121,8 +121,30 @@ fn build_provider(entry: &ProviderEntry, model: &str) -> Result<Box<dyn Provider
                 "no-key".to_string()
             };
 
+            let base_url = entry.resolved_api_base();
+
+            // Emit a redacted final-target diagnostic so a wrong endpoint
+            // (e.g. a custom base URL being ignored) is obvious before the
+            // request goes out, instead of surfacing as an opaque 401.
+            if base_url != entry.api_base {
+                let host = base_url
+                    .split("://")
+                    .nth(1)
+                    .unwrap_or(&base_url)
+                    .split('/')
+                    .next()
+                    .unwrap_or(&base_url);
+                eprintln!(
+                    "provider={} host={} model={} key_present={}",
+                    entry.id,
+                    host,
+                    model,
+                    entry.requires_key()
+                );
+            }
+
             let provider = OpenAi::builder()
-                .base_url(entry.api_base)
+                .base_url(base_url)
                 .api_key(key)
                 .model(model)
                 .build()?;

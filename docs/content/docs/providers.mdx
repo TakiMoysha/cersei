@@ -216,12 +216,12 @@ abstract "fix the tests" --model llama   # alias
 
 ## DeepSeek
 
-DeepSeek Chat and Coder models.
+DeepSeek Chat, Reasoner, and Coder models via DeepSeek's native endpoint.
 
 | | |
 |---|---|
 | API Base | `https://api.deepseek.com/v1` |
-| Env Var | `DEEPSEEK_API_KEY` |
+| Env Var | `DEEPSEEK_API_KEY` (the only variable required) |
 | Format | OpenAI-compatible |
 | Default Model | `deepseek-chat` |
 
@@ -230,13 +230,25 @@ DeepSeek Chat and Coder models.
 | Model | Context Window |
 |-------|---------------|
 | `deepseek-chat` | 64K |
+| `deepseek-reasoner` | 64K |
 | `deepseek-coder` | 64K |
+
+Minimal working example:
 
 ```bash
 export DEEPSEEK_API_KEY=sk-...
+abstract --provider deepseek --model deepseek-chat
+abstract --provider deepseek --model deepseek-reasoner
+
+# Equivalent model-string forms:
 abstract "fix the tests" --model deepseek/deepseek-chat
-abstract "fix the tests" --model deepseek   # alias
+abstract "fix the tests" --model deepseek            # alias → deepseek/deepseek-chat
 ```
+
+Selecting `--provider deepseek` (or any `deepseek-*` model name) always resolves
+`DEEPSEEK_API_KEY` and the native DeepSeek base URL — it never falls back to the
+OpenAI endpoint. To point DeepSeek at a proxy/gateway instead, set
+`DEEPSEEK_BASE_URL` (see [Custom Endpoints](#adding-custom-providers)).
 
 ---
 
@@ -423,16 +435,25 @@ let output = Agent::builder()
     .await?;
 ```
 
-For the CLI, set a custom base URL in config:
+For the CLI, any OpenAI-compatible provider's base URL can be overridden with a
+`<PROVIDER>_BASE_URL` environment variable. The provider id is upper-cased, so:
 
-```toml
-# .abstract/config.toml
-model = "gpt-4o"
-provider = "openai"
-```
-
-Then override via environment:
+| Provider | Override variable |
+|----------|-------------------|
+| `openai` | `OPENAI_BASE_URL` (legacy alias: `OPENAI_API_BASE`) |
+| `deepseek` | `DEEPSEEK_BASE_URL` |
+| `openrouter` | `OPENROUTER_BASE_URL` |
+| …any OpenAI-compatible provider | `<ID>_BASE_URL` |
 
 ```bash
-OPENAI_API_KEY=my-key OPENAI_BASE_URL=https://my-custom-api.com/v1 abstract "fix the tests"
+# Route the OpenAI provider at any OpenAI-compatible gateway:
+OPENAI_API_KEY=my-key OPENAI_BASE_URL=https://my-custom-api.com/v1 \
+  abstract "fix the tests" --provider openai --model my-model
 ```
+
+When an override is in effect, Abstract prints a redacted target line before the
+first request — e.g. `provider=openai host=my-custom-api.com model=my-model
+key_present=true` — so a misrouted endpoint is obvious instead of surfacing as an
+opaque `401`. If you intend to talk to DeepSeek, prefer `--provider deepseek`
+with `DEEPSEEK_API_KEY`; only use the `openai` provider + `OPENAI_BASE_URL` route
+for endpoints without a dedicated provider entry.

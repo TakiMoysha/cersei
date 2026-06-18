@@ -75,8 +75,17 @@ fn visual_lines(input: &str, prompt: &str, usable_width: usize) -> Vec<String> {
                 out.push(format!("{p}{rem}"));
                 break;
             }
-            let brk = rem[..cap].rfind(' ').map(|i| i + 1).unwrap_or(cap);
-            let brk = if brk == 0 { cap } else { brk };
+            // Floor the wrap column to a char boundary so we never slice
+            // through a multibyte UTF-8 sequence.
+            let mut limit = cap.min(rem.len());
+            while limit > 0 && !rem.is_char_boundary(limit) {
+                limit -= 1;
+            }
+            if limit == 0 {
+                limit = rem.chars().next().map_or(1, char::len_utf8);
+            }
+            let brk = rem[..limit].rfind(' ').map(|i| i + 1).unwrap_or(limit);
+            let brk = if brk == 0 { limit } else { brk };
             out.push(format!("{p}{}", &rem[..brk]));
             rem = &rem[brk..];
             first = false;

@@ -155,8 +155,19 @@ fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
         } else {
             let mut remaining = line;
             while remaining.len() > max_width {
-                let break_at = remaining[..max_width].rfind(' ').unwrap_or(max_width);
-                let break_at = if break_at == 0 { max_width } else { break_at };
+                // Floor the hard limit to a char boundary so slicing never
+                // splits a multibyte UTF-8 sequence.
+                let mut limit = max_width;
+                while limit > 0 && !remaining.is_char_boundary(limit) {
+                    limit -= 1;
+                }
+                // Guarantee forward progress: if a single leading char is wider
+                // than max_width, emit that whole char rather than spinning.
+                if limit == 0 {
+                    limit = remaining.chars().next().map_or(1, char::len_utf8);
+                }
+                let break_at = remaining[..limit].rfind(' ').unwrap_or(limit);
+                let break_at = if break_at == 0 { limit } else { break_at };
                 result.push(remaining[..break_at].to_string());
                 remaining = remaining[break_at..].trim_start();
             }

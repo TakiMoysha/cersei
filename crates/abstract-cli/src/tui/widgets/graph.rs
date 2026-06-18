@@ -316,9 +316,11 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 }
 
 fn truncate_label(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    // Count/slice by characters to avoid splitting a multibyte UTF-8 char.
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}…", &s[..max - 1])
+        let head: String = s.chars().take(max.saturating_sub(1)).collect();
+        format!("{head}…")
     }
 }

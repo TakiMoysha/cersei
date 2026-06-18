@@ -24,7 +24,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.9"
+version = "0.2.0"
 edition = "2021"
 authors = ["Adib Mohsin"]
 license = "MIT"
@@ -98,22 +98,22 @@ quote = "1"
 proc-macro2 = "1"
 
 # Workspace crates
-cersei = { path = "crates/cersei", version = "0.1.9" }
-cersei-types = { path = "crates/cersei-types", version = "0.1.9" }
-cersei-provider = { path = "crates/cersei-provider", version = "0.1.9" }
-cersei-tools = { path = "crates/cersei-tools", version = "0.1.9" }
-cersei-tools-derive = { path = "crates/cersei-tools-derive", version = "0.1.9" }
-cersei-agent = { path = "crates/cersei-agent", version = "0.1.9" }
-cersei-memory = { path = "crates/cersei-memory", version = "0.1.9" }
-cersei-hooks = { path = "crates/cersei-hooks", version = "0.1.9" }
-cersei-mcp = { path = "crates/cersei-mcp", version = "0.1.9" }
-cersei-lsp = { path = "crates/cersei-lsp", version = "0.1.9" }
-cersei-embeddings = { path = "crates/cersei-embeddings", version = "0.1.9" }
-cersei-compression = { path = "crates/cersei-compression", version = "0.1.9" }
-cersei-skills = { path = "crates/cersei-skills", version = "0.1.9" }
-cersei-vms = { path = "crates/cersei-vms", version = "0.1.9" }
-cersei-agentlang = { path = "crates/cersei-agentlang", version = "0.1.9" }
-cersei-agentrl = { path = "crates/cersei-agentrl", version = "0.1.9" }
+cersei = { path = "crates/cersei", version = "0.2.0" }
+cersei-types = { path = "crates/cersei-types", version = "0.2.0" }
+cersei-provider = { path = "crates/cersei-provider", version = "0.2.0" }
+cersei-tools = { path = "crates/cersei-tools", version = "0.2.0" }
+cersei-tools-derive = { path = "crates/cersei-tools-derive", version = "0.2.0" }
+cersei-agent = { path = "crates/cersei-agent", version = "0.2.0" }
+cersei-memory = { path = "crates/cersei-memory", version = "0.2.0" }
+cersei-hooks = { path = "crates/cersei-hooks", version = "0.2.0" }
+cersei-mcp = { path = "crates/cersei-mcp", version = "0.2.0" }
+cersei-lsp = { path = "crates/cersei-lsp", version = "0.2.0" }
+cersei-embeddings = { path = "crates/cersei-embeddings", version = "0.2.0" }
+cersei-compression = { path = "crates/cersei-compression", version = "0.2.0" }
+cersei-skills = { path = "crates/cersei-skills", version = "0.2.0" }
+cersei-vms = { path = "crates/cersei-vms", version = "0.2.0" }
+cersei-agentlang = { path = "crates/cersei-agentlang", version = "0.2.0" }
+cersei-agentrl = { path = "crates/cersei-agentrl", version = "0.2.0" }
 
 # Google Cloud auth (service-account → self-refreshing OAuth tokens for Vertex).
 # rustls only — keeps the static-musl build OpenSSL-free.

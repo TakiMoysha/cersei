@@ -51,13 +51,22 @@ fn cap_tool_result(content: &str) -> String {
 
     // Char-based fallback for single long lines or binary-ish output
     if content.len() > MAX_SINGLE_RESULT_CHARS {
-        let head_chars = MAX_SINGLE_RESULT_CHARS * 70 / 100;
+        // Floor/ceil the cut points to char boundaries so we never slice
+        // through a multibyte UTF-8 sequence (which would panic).
+        let mut head_end = MAX_SINGLE_RESULT_CHARS * 70 / 100;
+        while head_end > 0 && !content.is_char_boundary(head_end) {
+            head_end -= 1;
+        }
         let tail_chars = MAX_SINGLE_RESULT_CHARS * 20 / 100;
-        let omitted = content.len().saturating_sub(head_chars + tail_chars);
+        let mut tail_start = content.len().saturating_sub(tail_chars);
+        while tail_start < content.len() && !content.is_char_boundary(tail_start) {
+            tail_start += 1;
+        }
+        let omitted = tail_start.saturating_sub(head_end);
         return format!(
             "{}\n\n[... {omitted} chars omitted ...]\n\n{}",
-            &content[..head_chars],
-            &content[content.len().saturating_sub(tail_chars)..]
+            &content[..head_end],
+            &content[tail_start..]
         );
     }
 

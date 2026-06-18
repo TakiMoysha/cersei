@@ -341,9 +341,34 @@ fn tool_input_summary(name: &str, input: &serde_json::Value) -> String {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    // Count/slice by characters so we never split a multibyte UTF-8 sequence
+    // (e.g. accented chars like `à`, `é`), which would panic.
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max])
+        let head: String = s.chars().take(max).collect();
+        format!("{head}...")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+
+    #[test]
+    fn truncate_does_not_panic_on_multibyte_chars() {
+        // Regression: byte-index slicing used to panic mid-`à`. Truncating
+        // across multibyte boundaries must be safe for any cut point.
+        let s = "café à la française — çàùéè répétée ".repeat(10);
+        for max in 0..s.chars().count() + 5 {
+            let out = truncate(&s, max);
+            assert!(out.is_char_boundary(out.len()));
+        }
+    }
+
+    #[test]
+    fn truncate_keeps_short_strings_intact() {
+        assert_eq!(truncate("àéç", 10), "àéç");
+        assert_eq!(truncate("àéçùè", 3), "àéç...");
     }
 }

@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.2.0] - 2026-06-19
+
+### Added
+
+- **New crate: `cersei-agentrl`.** AgentRL — a self-evolving orchestration layer on top of the Cersei agent SDK. Governs the run → fail → trace → plan → sandbox → promote → register loop via an `ExecutionGraph` and a dynamic `ToolRegistry`. Docs: [Overview](https://cersei.pacifio.dev/docs/agentrl-overview) · [API](https://cersei.pacifio.dev/docs/agentrl-api) · [Template DSL](https://cersei.pacifio.dev/docs/agentrl-template) · [Cookbook](https://cersei.pacifio.dev/docs/agentrl-cookbook).
+  - **`graph` / `graph_reporter`** — build a failure-tracing DAG from agent events.
+  - **`registry`** — a persisted, searchable database of agent-built tools.
+  - **`orchestrator`** — the RL loop, written against the `AgentRlRunner` trait.
+  - **`scrub`** — enforces the hard rule that no secrets land in persisted artifacts (traces, planned tools, registry rows).
+- **New crate: `cersei-agentlang`.** The AgentTemplate DSL — a small functional language that LLMs and agents author and that executes on top of the Cersei runtime. Pipeline: `parse` → `Program` → `run_program` over an `EvalCtx`. Builtins (`io.*`, `net.*`, `agent.*`, `kv.*`) dispatch by tool name through the `ToolDispatch` trait, so the language is decoupled from the concrete tool set. Ships an LLM-facing `AGENTLANG_SPEC`.
+- **New crate: `cersei-tbench`.** A purpose-built Terminal-Bench coding agent on the Cersei SDK + AgentRL, with its own task prompt.
+- **`--agentrl` mode in abstract-cli** (`agentrl_run.rs`). Solves a single task with the self-evolving AgentRL orchestrator instead of a one-shot agent. Designed for headless / terminal-bench runs: resolves a provider from `--model`, builds a verifier that prefers a task-provided `run-tests.sh` and falls back to accepting the agent's result, runs the `Orchestrator` in the working directory, and prints a machine-readable result line compatible with the harbor adapter.
+- **Anthropic via Google Vertex AI provider** (`cersei-provider::AnthropicVertex`, `vertex` registry id). Reuses the direct-Anthropic request body + SSE parser; differences are the Vertex `:streamRawPredict` URL, `Authorization: Bearer <gcp token>` auth, and the `"anthropic_version": "vertex-2023-10-16"` body field. Auth resolves in order from a self-refreshing service-account JSON (via `gcp_auth`, required for long runs since GCP tokens expire ~1h), a pre-minted `VERTEX_ACCESS_TOKEN`, or `gcloud auth print-access-token`.
+- **First-class custom OpenAI-compatible endpoints.** Any OpenAI-compatible provider's base URL can now be overridden with `<PROVIDER>_BASE_URL` (e.g. `OPENAI_BASE_URL`, `DEEPSEEK_BASE_URL`, `OPENROUTER_BASE_URL`); `OPENAI_API_BASE` is accepted as a legacy alias for `openai`. `ProviderEntry::resolved_api_base()` performs the lookup. When an override is in effect, a redacted final-target diagnostic (`provider=… host=… model=… key_present=…`) is printed before the first request so a misrouted endpoint is obvious instead of surfacing as an opaque `401`. Closes [#17](https://github.com/pacifio/cersei/issues/17) (item 2).
+- **`deepseek-reasoner`** added to the DeepSeek provider registry (64K context, thinking capabilities) alongside `deepseek-chat` and `deepseek-coder`. Docs updated with a minimal `--provider deepseek` working example and the `<PROVIDER>_BASE_URL` override table.
+
+### Changed
+
+- Workspace bumped to **0.2.0** across every crate via `version.workspace = true` (18-crate layout now includes `cersei-agentrl`, `cersei-agentlang`, `cersei-tbench`).
+- `ProviderEntry::api_key_from_env()` now **trims** the env value before use — launchers that reconstruct a key via command substitution (`KEY="$(…)"`) commonly leave a trailing newline, which previously produced a confusing `401` instead of a clean error. Whitespace-only values are treated as absent. Addresses [#17](https://github.com/pacifio/cersei/issues/17) (item 1).
+- The OpenAI-compatible router path resolves its base URL through `resolved_api_base()` instead of the hardcoded registry default, so `--provider deepseek` always targets `api.deepseek.com` and never silently falls back to `api.openai.com`.
+
+### Fixed
+
+- **UTF-8 panic on multibyte input in the TUI** (`assertion failed: self.is_char_boundary(idx)`). The text-input cursor in `tui/event_loop.rs` tracked `cursor_pos` as a byte index but advanced it by one *character* per keypress, so typing a multibyte character (Chinese / Japanese / Korean, etc.) and pressing a key landed the cursor mid-character and panicked on the next insert. Char insert, Backspace, Left, and Right now move by the char's UTF-8 byte length. Fixes [#14](https://github.com/pacifio/cersei/issues/14).
+- **UTF-8 panic on accented characters** (`byte index … is not a char boundary; it is inside 'à'`). Six byte-slice truncators across the CLI and agent runner (`render::truncate`, `event_loop::truncate`, `graph::truncate_label`, `messages::wrap_text`, `widgets/input` wrap, and `runner` content head/tail cuts) could split a multibyte UTF-8 sequence. The `truncate*` helpers are now char-based; the word-wrap and content-cut paths floor/ceil their slice points to char boundaries with a forward-progress guard so a single wide char can't loop. Fixes [#17](https://github.com/pacifio/cersei/issues/17) (item 3).
+
 ## [0.1.9] - 2026-05-17
 
 ### Added
