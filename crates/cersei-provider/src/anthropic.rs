@@ -98,67 +98,13 @@ impl Provider for Anthropic {
             request.model.clone()
         };
 
-        // Build API messages
-        let api_messages: Vec<serde_json::Value> = request
-            .messages
-            .iter()
-            .filter(|m| m.role != Role::System)
-            .map(|m| {
-                serde_json::json!({
-                    "role": m.role,
-                    "content": m.content,
-                })
-            })
-            .collect();
-
-        // Build request body
-        let mut body = serde_json::json!({
-            "model": model,
-            "max_tokens": request.max_tokens,
-            "messages": api_messages,
-            "stream": true,
-        });
-
-        if let Some(system) = &request.system {
-            body["system"] = serde_json::Value::String(system.clone());
-        }
-
-        if !request.tools.is_empty() {
-            let api_tools: Vec<serde_json::Value> = request
-                .tools
-                .iter()
-                .map(|t| {
-                    serde_json::json!({
-                        "name": t.name,
-                        "description": t.description,
-                        "input_schema": t.input_schema,
-                    })
-                })
-                .collect();
-            body["tools"] = serde_json::Value::Array(api_tools);
-        }
-
-        if let Some(temp) = request.temperature {
-            body["temperature"] = serde_json::json!(temp);
-        }
-
-        if !request.stop_sequences.is_empty() {
-            body["stop_sequences"] = serde_json::json!(request.stop_sequences);
-        }
-
-        // Thinking config
         let thinking_budget = request
             .options
             .get::<u32>("thinking_budget")
             .or(self.thinking_budget);
-        if let Some(budget) = thinking_budget {
-            body["thinking"] = serde_json::json!({
-                "type": "enabled",
-                "budget_tokens": budget,
-            });
-        }
+        // Direct Anthropic: include "model" in the body, no vertex version.
+        let body = build_anthropic_body(Some(&model), &request, thinking_budget, None);
 
-        // Build HTTP request
         let url = format!("{}/v1/messages", self.base_url);
         let mut req_builder = self
             .client
@@ -166,73 +112,136 @@ impl Provider for Anthropic {
             .header("anthropic-version", ANTHROPIC_API_VERSION)
             .header("anthropic-beta", ANTHROPIC_BETA_HEADER)
             .header("content-type", "application/json");
-
         for (name, value) in self.auth_headers().await? {
             req_builder = req_builder.header(&name, &value);
         }
 
-        let (tx, rx) = mpsc::channel(256);
+        let http_request = req_builder.json(&body).build().map_err(CerseiError::Http)?;
+        Ok(spawn_sse(self.client.clone(), http_request))
+    }
+}
 
-        let request = req_builder.json(&body).build().map_err(CerseiError::Http)?;
-        let client = self.client.clone();
+// ─── Shared request/stream helpers (reused by the Vertex provider) ─────────────
 
-        // Spawn SSE consumer
-        tokio::spawn(async move {
-            match client.execute(request).await {
-                Ok(response) => {
-                    if !response.status().is_success() {
-                        let status = response.status().as_u16();
-                        let body = response.text().await.unwrap_or_default();
-                        let _ = tx
-                            .send(StreamEvent::Error {
-                                message: format!("HTTP {}: {}", status, body),
-                            })
-                            .await;
-                        return;
-                    }
+/// Build the Anthropic Messages request body.
+///
+/// - `model`: `Some(model)` for direct Anthropic (adds the `model` field);
+///   `None` for Vertex (model is in the URL path; adds `anthropic_version`).
+/// - Prompt caching: a `cache_control: {type: ephemeral}` breakpoint is placed
+///   on the tool list and the system prompt (the stable prefix), so multi-turn
+///   runs reuse the cached prefix. (Inspired by efficiency-focused agents like
+///   vix/codex; implemented via Anthropic's native prompt caching.)
+pub(crate) fn build_anthropic_body(
+    model: Option<&str>,
+    request: &CompletionRequest,
+    thinking_budget: Option<u32>,
+    vertex_version: Option<&str>,
+) -> serde_json::Value {
+    let api_messages: Vec<serde_json::Value> = request
+        .messages
+        .iter()
+        .filter(|m| m.role != Role::System)
+        .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+        .collect();
 
-                    let mut stream = response.bytes_stream();
-                    let mut buffer = String::new();
+    let mut body = serde_json::json!({
+        "max_tokens": request.max_tokens,
+        "messages": api_messages,
+        "stream": true,
+    });
+    if let Some(m) = model {
+        body["model"] = serde_json::Value::String(m.to_string());
+    }
+    if let Some(v) = vertex_version {
+        body["anthropic_version"] = serde_json::Value::String(v.to_string());
+    }
 
-                    while let Some(chunk) = stream.next().await {
-                        match chunk {
-                            Ok(bytes) => {
-                                buffer.push_str(&String::from_utf8_lossy(&bytes));
-                                // Process complete SSE events
-                                while let Some(pos) = buffer.find("\n\n") {
-                                    let event_str = buffer[..pos].to_string();
-                                    buffer = buffer[pos + 2..].to_string();
+    // System prompt as a cacheable content block (stable prefix).
+    if let Some(system) = &request.system {
+        body["system"] = serde_json::json!([{
+            "type": "text",
+            "text": system,
+            "cache_control": { "type": "ephemeral" },
+        }]);
+    }
 
-                                    if let Some(event) = parse_sse_event(&event_str) {
-                                        if tx.send(event).await.is_err() {
-                                            return;
-                                        }
+    // Tools, with a cache breakpoint on the last tool (caches the whole tool set).
+    if !request.tools.is_empty() {
+        let mut api_tools: Vec<serde_json::Value> = request
+            .tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.input_schema,
+                })
+            })
+            .collect();
+        if let Some(last) = api_tools.last_mut() {
+            last["cache_control"] = serde_json::json!({ "type": "ephemeral" });
+        }
+        body["tools"] = serde_json::Value::Array(api_tools);
+    }
+
+    if let Some(temp) = request.temperature {
+        body["temperature"] = serde_json::json!(temp);
+    }
+    if !request.stop_sequences.is_empty() {
+        body["stop_sequences"] = serde_json::json!(request.stop_sequences);
+    }
+    if let Some(budget) = thinking_budget {
+        body["thinking"] = serde_json::json!({ "type": "enabled", "budget_tokens": budget });
+    }
+    body
+}
+
+/// Spawn an SSE consumer that parses Anthropic streaming events into a
+/// `CompletionStream`. Shared by the direct and Vertex providers.
+pub(crate) fn spawn_sse(client: reqwest::Client, request: reqwest::Request) -> CompletionStream {
+    let (tx, rx) = mpsc::channel(256);
+    tokio::spawn(async move {
+        match client.execute(request).await {
+            Ok(response) => {
+                if !response.status().is_success() {
+                    let status = response.status().as_u16();
+                    let body = response.text().await.unwrap_or_default();
+                    let _ = tx
+                        .send(StreamEvent::Error {
+                            message: format!("HTTP {}: {}", status, body),
+                        })
+                        .await;
+                    return;
+                }
+                let mut stream = response.bytes_stream();
+                let mut buffer = String::new();
+                while let Some(chunk) = stream.next().await {
+                    match chunk {
+                        Ok(bytes) => {
+                            buffer.push_str(&String::from_utf8_lossy(&bytes));
+                            while let Some(pos) = buffer.find("\n\n") {
+                                let event_str = buffer[..pos].to_string();
+                                buffer = buffer[pos + 2..].to_string();
+                                if let Some(event) = parse_sse_event(&event_str) {
+                                    if tx.send(event).await.is_err() {
+                                        return;
                                     }
                                 }
                             }
-                            Err(e) => {
-                                let _ = tx
-                                    .send(StreamEvent::Error {
-                                        message: e.to_string(),
-                                    })
-                                    .await;
-                                return;
-                            }
+                        }
+                        Err(e) => {
+                            let _ = tx.send(StreamEvent::Error { message: e.to_string() }).await;
+                            return;
                         }
                     }
                 }
-                Err(e) => {
-                    let _ = tx
-                        .send(StreamEvent::Error {
-                            message: e.to_string(),
-                        })
-                        .await;
-                }
             }
-        });
-
-        Ok(CompletionStream::new(rx))
-    }
+            Err(e) => {
+                let _ = tx.send(StreamEvent::Error { message: e.to_string() }).await;
+            }
+        }
+    });
+    CompletionStream::new(rx)
 }
 
 // ─── SSE parser ──────────────────────────────────────────────────────────────

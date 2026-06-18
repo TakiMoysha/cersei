@@ -98,6 +98,10 @@ pub struct Agent {
     messages: Arc<parking_lot::Mutex<Vec<Message>>>,
     cumulative_usage: Arc<parking_lot::Mutex<Usage>>,
     cancel_token: tokio_util::sync::CancellationToken,
+    /// Type-map injected into every `ToolContext` this agent builds. Used by
+    /// orchestration layers (e.g. cersei-agentrl) to hand tools a dynamic tool
+    /// registry, a sandbox handle, a Mailbox/KvStore, etc. at runtime.
+    pub(crate) extensions: cersei_tools::Extensions,
 }
 
 impl Agent {
@@ -231,6 +235,7 @@ pub struct AgentBuilder {
     compression_level: cersei_compression::CompressionLevel,
     initial_messages: Option<Vec<Message>>,
     benchmark_mode: bool,
+    extensions: cersei_tools::Extensions,
 }
 
 impl Default for AgentBuilder {
@@ -263,6 +268,7 @@ impl Default for AgentBuilder {
             compression_level: cersei_compression::CompressionLevel::Off,
             initial_messages: None,
             benchmark_mode: false,
+            extensions: cersei_tools::Extensions::default(),
         }
     }
 }
@@ -423,6 +429,14 @@ impl AgentBuilder {
         self
     }
 
+    /// Inject a type-map that is cloned into every `ToolContext` this agent
+    /// builds, letting tools retrieve runtime-injected handles (dynamic tool
+    /// registry, sandbox, Mailbox/KvStore) via `ctx.extensions.get::<T>()`.
+    pub fn extensions(mut self, ext: cersei_tools::Extensions) -> Self {
+        self.extensions = ext;
+        self
+    }
+
     pub fn build(self) -> cersei_types::Result<Agent> {
         let provider = self
             .provider
@@ -475,6 +489,7 @@ impl AgentBuilder {
             cancel_token: self
                 .cancel_token
                 .unwrap_or_else(tokio_util::sync::CancellationToken::new),
+            extensions: self.extensions,
         })
     }
 

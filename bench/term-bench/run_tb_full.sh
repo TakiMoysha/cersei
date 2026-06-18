@@ -33,6 +33,7 @@ TIMEOUT_MULT="${TIMEOUT_MULT:-1.0}"
 ATTEMPTS="${ATTEMPTS:-1}"  # Use --attempts 5 for leaderboard submission
 USE_DAYTONA=true
 ENABLE_EMBEDDING=true  # ON by default
+ENABLE_AGENTRL=false   # AgentRL self-evolving mode (off by default)
 EXTRA_ARGS=()
 
 # ─── Parse args ────────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --timeout-mult)     TIMEOUT_MULT="$2"; shift 2 ;;
     --local)            USE_DAYTONA=false; shift ;;
     --no-embedding)     ENABLE_EMBEDDING=false; shift ;;
+    --agentrl)          ENABLE_AGENTRL=true; shift ;;
     --include)          EXTRA_ARGS+=("--include-task-name" "$2"); shift 2 ;;
     --exclude)          EXTRA_ARGS+=("--exclude-task-name" "$2"); shift 2 ;;
     --task)             EXTRA_ARGS+=("--include-task-name" "$2"); shift 2 ;;
@@ -132,6 +134,9 @@ echo ""
 # ─── Agent kwargs ──────────────────────────────────────────────────────────
 if $ENABLE_EMBEDDING; then
   EXTRA_ARGS+=("--agent-kwarg" "enable_embedding=true")
+fi
+if $ENABLE_AGENTRL; then
+  EXTRA_ARGS+=("--agent-kwarg" "enable_agentrl=true")
 fi
 
 # ─── Run ───────────────────────────────────────────────────────────────────

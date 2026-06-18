@@ -3,6 +3,7 @@
 //! Built on the Cersei SDK with sub-millisecond tool dispatch,
 //! graph-backed memory, and a single static binary.
 
+mod agentrl_run;
 mod app;
 mod commands;
 mod config;
@@ -78,6 +79,12 @@ pub struct Cli {
     /// Headless autonomous mode: task-focused prompt, auto-approve all tools, extended turns
     #[arg(long, alias = "benchmark")]
     pub headless: bool,
+
+    /// AgentRL mode: solve the task with the self-evolving orchestrator
+    /// (GeneralAgent → verify → plan → sandboxed proposals → promote → register).
+    /// Combine with -p and --headless for benchmark runs.
+    #[arg(long)]
+    pub agentrl: bool,
 
     /// Enable embedding API for semantic code search reranking (uses your LLM provider's embeddings)
     #[arg(long)]

@@ -1,0 +1,210 @@
+---
+title: "AgentRL Cookbook"
+description: Runnable AgentRL recipes — a self-improving coding agent, forcing the recovery loop, custom verifiers and runners, and authoring tools from AgentTemplate programs.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+# AgentRL Cookbook
+
+Practical, runnable recipes. All examples assume the `agentrl` feature:
+
+```toml
+cersei = { version = "0.1", features = ["agentrl"] }
+```
+
+## 1. A self-improving coding agent
+
+Hand AgentRL a real task with an **independent** verifier and let it solve, register, and reuse.
+
+```rust
+use cersei::prelude::*;
+use cersei::agentrl::{CerseiRunner, CommandVerifier, Orchestrator, ToolRegistry, Verifier};
+use cersei::provider::Gemini;
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let registry = ToolRegistry::open(dirs::home_dir().unwrap().join(".cersei/agentrl"))?;
+
+    let verifier: Arc<dyn Verifier> = Arc::new(CommandVerifier::new(
+        "python3 gcd.py 48 36 | grep -qx 12 && python3 gcd.py 0 7 | grep -qx 7",
+    ));
+
+    let key = std::env::var("GEMINI_API_KEY")?;
+    let provider_factory = Arc::new(move || Box::new(Gemini::new(key.clone())) as Box<dyn Provider>);
+
+    let runner = Arc::new(
+        CerseiRunner::new(provider_factory, "./work", registry.clone(), verifier)
+            .with_model("gemini-3.1-pro-preview")
+            .with_max_turns(16),
+    );
+
+    let orchestrator = Orchestrator::new(runner, registry.clone());
+
+    let outcome = orchestrator
+        .solve("Create gcd.py: two int args, print their GCD (Euclidean). gcd(0, n) == n.")
+        .await?;
+
+    println!("solved={} how={:?}", outcome.solved, outcome.how);
+    println!("registry now has {} tool(s)", registry.len());
+    Ok(())
+}
+```
+
+<Callout type="warn">
+Make the verifier independent of anything the agent writes — exercise the real behavior, not the agent's own test file.
+</Callout>
+
+## 2. Force the recovery loop (and register a tool)
+
+The GeneralAgent solves easy tasks directly. To exercise the **plan → sandbox → promote → register** path, restrict the GeneralAgent so it *can't* finish — here, a read-only toolset. It fails the verifier, the planner proposes fixes, proposals run with full tools in isolated sandboxes, and the winner is registered.
+
+```rust
+use cersei::agentrl::{CerseiRunner, Orchestrator, OrchestratorConfig, Solved, ToolsFactory};
+
+// GeneralAgent gets ONLY read access → guaranteed first-pass failure.
+let readonly: ToolsFactory = Arc::new(|| {
+    vec![Box::new(cersei::tools::file_read::FileReadTool) as Box<dyn Tool>]
+});
+
+let runner = Arc::new(
+    CerseiRunner::new(provider_factory, "./work", registry.clone(), verifier)
+        .with_model("gemini-3.1-pro-preview")
+        .with_max_turns(12)
+        .with_general_tools(readonly),
+);
+
+let orchestrator = Orchestrator::new(runner, registry.clone())
+    .with_config(OrchestratorConfig {
+        max_rl_rounds: 1,
+        num_proposals: 2,
+        registry_search_k: 5,
+        session_id: "recovery".into(),
+    });
+
+let outcome = orchestrator.solve(task).await?;
+assert!(matches!(outcome.how, Some(Solved::ByNewTool(_))));
+for e in registry.all() {
+    println!("registered: {} ({})", e.name, e.tool_id);
+}
+```
+
+<Callout type="info">
+This is exactly the shape of the live end-to-end test in `crates/cersei-agentrl/tests/live_gemini.rs`. Run it with:
+
+```bash
+set -a; . ./.env; set +a
+cargo test -p cersei-agentrl --test live_gemini -- --ignored --nocapture
+```
+</Callout>
+
+## 3. The cache hit (self-improvement)
+
+Once a tool is registered, a similar task is solved by **recall** — `registry.search` surfaces the tool, the GeneralAgent uses it, and the planner never runs.
+
+```rust
+let again = orchestrator.solve("fix the parser build error").await?;
+match again.how {
+    Some(Solved::ByCachedTool(id)) => println!("cache hit → {id} (no planner, no sandboxes)"),
+    other => println!("path: {other:?}"),
+}
+```
+
+Wire `with_memory` so the problem statement is also written to the agent's memory:
+
+```rust
+let orchestrator = Orchestrator::new(runner, registry).with_memory(memory);
+```
+
+## 4. A custom verifier
+
+Anything that decides "did it work?" can be a `Verifier` — run a test suite, start a server and curl it, diff output.
+
+```rust
+use cersei::agentrl::{VerifyResult, Verifier};
+use async_trait::async_trait;
+use std::path::Path;
+
+struct CargoTestVerifier;
+
+#[async_trait]
+impl Verifier for CargoTestVerifier {
+    async fn verify(&self, workdir: &Path) -> VerifyResult {
+        let out = tokio::process::Command::new("cargo")
+            .arg("test").current_dir(workdir).output().await;
+        match out {
+            Ok(o) => VerifyResult {
+                passed: o.status.success(),
+                detail: String::from_utf8_lossy(&o.stderr).chars().take(800).collect(),
+            },
+            Err(e) => VerifyResult { passed: false, detail: e.to_string() },
+        }
+    }
+}
+```
+
+(`CommandVerifier::new("cargo test")` does exactly this — implement the trait when you need richer logic.)
+
+## 5. A custom runner
+
+The loop is generic over `AgentRlRunner`. Implement it to plug in your own agent stack, sandbox backend, or proposal strategy.
+
+```rust
+use cersei::agentrl::{AgentRlRunner, GeneralResult, Proposal, ProposalOutcome, RegistryEntry, FailureTrace};
+use async_trait::async_trait;
+
+struct MyRunner { /* providers, sandbox runtime, ... */ }
+
+#[async_trait]
+impl AgentRlRunner for MyRunner {
+    async fn run_general(&self, task: &str, available: &[RegistryEntry]) -> GeneralResult { /* ... */ }
+    async fn plan(&self, trace: &FailureTrace, n: usize) -> Vec<Proposal> { /* ... */ }
+    async fn run_proposal(&self, p: &Proposal) -> ProposalOutcome { /* ... */ }
+    async fn promote(&self, winner: &ProposalOutcome) { /* copy/restore the winner */ }
+}
+```
+
+<Callout type="info">
+Drive the orchestrator with a mock `AgentRlRunner` in tests to verify your loop policy (register-then-reuse, round bounds) with zero network — see `crates/cersei-agentrl/tests/rl_loop.rs`.
+</Callout>
+
+## 6. Run proposals in real cersei-vms sandboxes
+
+`CerseiRunner` isolates proposals in temp directories by default. For container isolation, run proposals through [`cersei-vms`](/docs/vms-overview): allocate a sandbox per proposal, inject its handle into the agent's `ToolContext.extensions` so `BashTool` transparently routes through it, then `snapshot()` the winner and `restore()` it as the promoted state. Implement this inside a custom `run_proposal`/`promote`.
+
+```rust
+let runtime = cersei::vms::DockerRuntime::new()?;     // or LocalProcessRuntime
+let sb = runtime.create(SandboxOpts::image("cersei/sandbox-base:latest")).await?;
+// inject Arc<dyn Sandbox> into the proposal agent's extensions, run, verify,
+// then: let snap = sb.snapshot().await?;  (promote via runtime.restore)
+```
+
+## 7. Author a tool from an AgentTemplate program
+
+Let a model write a short [AgentTemplate](/docs/agentrl-template) program, run it through `RunAgentTemplate`, and (with the registry wired) register it for reuse.
+
+```rust
+use cersei::agentlang::{AGENTLANG_SPEC, RunAgentTemplateTool};
+
+let agent = Agent::builder()
+    .provider(Anthropic::from_env()?)
+    .tool(RunAgentTemplateTool)
+    .append_system_prompt(AGENTLANG_SPEC)  // teach the model the DSL
+    .extensions(ext)                       // DispatchHandle (+ Mailbox/KvStore)
+    .run_with("Write a template that reads config.json and posts a summary to the 'ops' agent.")
+    .await?;
+```
+
+<Cards>
+  <Card title="AgentRL Overview" href="/docs/agentrl-overview">
+    The concept and the loop.
+  </Card>
+  <Card title="AgentRL API" href="/docs/agentrl-api">
+    Full type and trait reference.
+  </Card>
+  <Card title="AgentTemplate" href="/docs/agentrl-template">
+    The programmable DSL.
+  </Card>
+</Cards>

@@ -31,6 +31,7 @@ cersei-memory = { workspace = true }
 cersei-hooks = { workspace = true }
 cersei-mcp = { workspace = true }
 cersei-compression = { workspace = true }
+cersei-agentrl = { workspace = true }
 
 # CLI
 clap = { version = "4", features = ["derive"] }

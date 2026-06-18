@@ -34,6 +34,10 @@ pub use cersei_tools as tools;
 pub use cersei_types as types;
 #[cfg(feature = "vms")]
 pub use cersei_vms as vms;
+#[cfg(feature = "agentlang")]
+pub use cersei_agentlang as agentlang;
+#[cfg(feature = "agentrl")]
+pub use cersei_agentrl as agentrl;
 
 // Convenience re-exports for common providers
 pub use cersei_provider::anthropic::Anthropic;

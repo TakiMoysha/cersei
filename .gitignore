@@ -49,3 +49,7 @@ bench/**/__pycache__/
 
 # Atlas editor
 .atlas
+
+# Google Vertex service-account key (NEVER commit)
+service-account.json
+*service-account*.json

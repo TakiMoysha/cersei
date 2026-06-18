@@ -19,6 +19,15 @@ use tokio_util::sync::CancellationToken;
 
 /// Run the application (REPL or single-shot).
 pub async fn run(cli: Cli, mut config: AppConfig) -> anyhow::Result<()> {
+    // AgentRL mode: solve a single task with the self-evolving orchestrator.
+    // Bypasses the normal agent build entirely.
+    if cli.agentrl {
+        if let Some(prompt) = cli.prompt.as_deref().filter(|p| *p != ".") {
+            return crate::agentrl_run::run(prompt, &config).await;
+        }
+        anyhow::bail!("--agentrl requires a task prompt (-p \"...\")");
+    }
+
     let theme = Theme::from_name(&config.theme);
 
     // Resolve or create session ID

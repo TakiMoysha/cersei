@@ -231,7 +231,7 @@ pub async fn run_agent_streaming(
         permissions: Arc::clone(&agent.permission_policy),
         cost_tracker: Arc::clone(&agent.cost_tracker),
         mcp_manager: agent.mcp_manager.clone(),
-        extensions: cersei_tools::Extensions::default(),
+        extensions: agent.extensions.clone(),
     };
 
     // Agentic loop

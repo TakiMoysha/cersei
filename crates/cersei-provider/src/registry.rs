@@ -11,6 +11,8 @@ use crate::ProviderCapabilities;
 pub enum ApiFormat {
     /// Anthropic's native API format (different SSE events, system prompt handling).
     Anthropic,
+    /// Anthropic models served via Google Vertex AI (Model Garden).
+    AnthropicVertex,
     /// OpenAI-compatible `/v1/chat/completions` format (used by most providers).
     OpenAiCompatible,
     /// Google Gemini native `generateContent` API format.
@@ -132,6 +134,33 @@ pub static REGISTRY: &[ProviderEntry] = &[
         models: &[
             ModelEntry {
                 id: "claude-opus-4-6",
+                context_window: 200_000,
+                capabilities: FULL_THINKING,
+            },
+            ModelEntry {
+                id: "claude-sonnet-4-6",
+                context_window: 200_000,
+                capabilities: FULL_THINKING,
+            },
+            ModelEntry {
+                id: "claude-haiku-4-5",
+                context_window: 200_000,
+                capabilities: FULL,
+            },
+        ],
+    },
+    ProviderEntry {
+        id: "vertex",
+        name: "Anthropic via Google Vertex AI",
+        api_base: "https://aiplatform.googleapis.com",
+        // Used only for availability/auto-detect. Actual auth is resolved by the
+        // provider (service-account JSON / VERTEX_ACCESS_TOKEN / gcloud).
+        env_keys: &["VERTEX_PROJECT_ID"],
+        api_format: ApiFormat::AnthropicVertex,
+        default_model: "claude-opus-4-8",
+        models: &[
+            ModelEntry {
+                id: "claude-opus-4-8",
                 context_window: 200_000,
                 capabilities: FULL_THINKING,
             },

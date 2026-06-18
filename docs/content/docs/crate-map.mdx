@@ -20,6 +20,11 @@ pub use cersei_hooks as hooks;
 pub use cersei_mcp as mcp;
 pub use cersei_provider::anthropic::Anthropic;
 pub use cersei_provider::openai::OpenAi;
+
+// feature-gated
+pub use cersei_vms as vms;             // feature = "vms" (default)
+pub use cersei_agentlang as agentlang; // feature = "agentlang"
+pub use cersei_agentrl as agentrl;     // feature = "agentrl"
 ```
 
 ## cersei-types
@@ -67,6 +72,14 @@ Provider-agnostic `EmbeddingProvider` trait with built-in Gemini and OpenAI back
 ## cersei-mcp
 
 MCP client: JSON-RPC 2.0, stdio transport, tool discovery, resource enumeration, environment variable expansion.
+
+## cersei-agentlang
+
+The **AgentTemplate** DSL: hand-written lexer/parser/AST + an async, permission-gated interpreter. Builtins (`io.*`, `net.*`, `agent.*`, `kv.*`) dispatch by tool name through the `ToolDispatch` trait, so the language is decoupled from the concrete tool set. Exposes `RunAgentTemplateTool` and `AGENTLANG_SPEC`. See [AgentTemplate](/docs/agentrl-template).
+
+## cersei-agentrl
+
+**AgentRL** — the self-evolving orchestration layer. `Orchestrator` (the loop), the `AgentRlRunner` trait + batteries-included `CerseiRunner`, `ExecutionGraph`/`GraphReporter` (failure tracing), `ToolRegistry` + `DynamicTool` (the tool database), the `Verifier` system, and a secret `scrub` pass. Depends on `cersei-agent`, `cersei-vms`, `cersei-embeddings`, `cersei-memory`, and `cersei-agentlang`. See [AgentRL](/docs/agentrl-overview).
 
 ## abstract-cli
 

@@ -44,8 +44,15 @@ class AbstractAgent(BaseInstalledAgent):
     Supports any provider/model via --model flag.
     """
 
-    def __init__(self, *args, enable_embedding: bool = False, **kwargs):
+    def __init__(
+        self,
+        *args,
+        enable_embedding: bool = False,
+        enable_agentrl: bool = False,
+        **kwargs,
+    ):
         self._enable_embedding = enable_embedding
+        self._enable_agentrl = enable_agentrl
         super().__init__(*args, **kwargs)
 
     ENV_VARS = [
@@ -132,6 +139,7 @@ class AbstractAgent(BaseInstalledAgent):
             model_flag = f"--model {self.model_name} "
 
         embedding_flag = "--embedding-api " if self._enable_embedding else ""
+        agentrl_flag = "--agentrl " if self._enable_agentrl else ""
 
         env = self.resolve_env_vars()
 
@@ -148,6 +156,17 @@ class AbstractAgent(BaseInstalledAgent):
             if active_patterns:
                 env["ABSTRACT_FAILURE_PATTERNS"] = "\n".join(active_patterns)
 
+        # Forward AgentRL tuning knobs from the host environment into the
+        # container (otherwise they stay at their defaults inside the sandbox).
+        for var in (
+            "ABSTRACT_AGENTRL_SAMPLES",
+            "ABSTRACT_AGENTRL_ROUNDS",
+            "ABSTRACT_AGENTRL_PROPOSALS",
+            "ABSTRACT_AGENTRL_REGISTRY",
+        ):
+            if os.environ.get(var):
+                env[var] = os.environ[var]
+
         output_path = EnvironmentPaths.agent_dir / "abstract-output.jsonl"
 
         await self.exec_as_agent(
@@ -156,6 +175,7 @@ class AbstractAgent(BaseInstalledAgent):
                 f"abstract -p {escaped} "
                 f"{model_flag}"
                 f"{embedding_flag}"
+                f"{agentrl_flag}"
                 "--no-permissions "
                 "--headless "
                 "--output-format stream-json "

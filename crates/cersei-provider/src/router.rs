@@ -90,6 +90,12 @@ fn build_provider(entry: &ProviderEntry, model: &str) -> Result<Box<dyn Provider
             })?;
             Ok(Box::new(Anthropic::new(Auth::ApiKey(key))))
         }
+        ApiFormat::AnthropicVertex => {
+            // Auth (service-account / token / gcloud) + project/location come from
+            // the environment; see AnthropicVertex::from_env.
+            let provider = crate::AnthropicVertex::from_env()?.with_model(model);
+            Ok(Box::new(provider))
+        }
         ApiFormat::Google => {
             let key = entry.api_key_from_env().ok_or_else(|| {
                 CerseiError::Auth(format!(

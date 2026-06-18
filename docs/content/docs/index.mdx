@@ -19,6 +19,10 @@ Every building block of a production coding agent — tool execution, LLM stream
 Cersei is part of the **[Atlas](https://tryatlas.cc/)** project — the open agent stack. Join the conversation on [Discord](https://discord.gg/GmnFggaPfP).
 </Callout>
 
+<Callout type="warn">
+**New — [AgentRL](/docs/agentrl-overview): self-evolving agents.** Agents that trace their own failures, propose fixes in isolated sandboxes, promote the one that passes verification, and **register it as a reusable, programmable tool**. They get cheaper and more capable on recurring problems over time. Drive it with the `AgentRlRunner` trait and author sub-agents in the **[AgentTemplate](/docs/agentrl-template)** language. [Read the overview →](/docs/agentrl-overview)
+</Callout>
+
 ### Featured on Dreams of Code
 
 <div className="relative w-full overflow-hidden rounded-xl border border-neutral-800 my-6" style={{ aspectRatio: '16 / 9' }}>
@@ -190,6 +194,9 @@ At **N=500**: Cersei holds them in **8.5 MB / 4.4 ms**. CrewAI needs **1 739 MB 
 ## What's Inside
 
 <Cards>
+  <Card title="AgentRL — Self-Evolving Agents" href="/docs/agentrl-overview">
+    The flagship orchestration layer. Trace failures, propose fixes in sandboxes, promote the verified winner, and register it as a reusable tool. Programmable via the `AgentRlRunner` trait and the AgentTemplate DSL.
+  </Card>
   <Card title="34 Built-in Tools" href="/docs/api-tools">
     File I/O, shell execution, web fetch, planning, scheduling, orchestration, skills discovery. Every tool a coding agent needs, with a permission system and bash safety classifier.
   </Card>
@@ -356,6 +363,9 @@ curl -fsSL https://cersei.pacifio.dev/install-abstract.sh | bash
 ## Explore
 
 <Cards>
+  <Card title="AgentRL" href="/docs/agentrl-overview">
+    Self-evolving agents: failure tracing, sandboxed proposals, a tool registry, and the AgentTemplate language.
+  </Card>
   <Card title="Quick Start" href="/docs/quick-start">
     First agent in 10 lines. Streaming, multi-provider, custom tools.
   </Card>

@@ -16,6 +16,9 @@ members = [
     "crates/cersei-compression",
     "crates/cersei-skills",
     "crates/cersei-vms",
+    "crates/cersei-agentlang",
+    "crates/cersei-agentrl",
+    "crates/cersei-tbench",
     "crates/abstract-cli",
     "bench/long-mem",
 ]
@@ -40,7 +43,10 @@ futures = "0.3"
 async-trait = "0.1"
 
 # HTTP
-reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls", "rustls-tls-webpki-roots"], default-features = false }
+# NOTE: `hickory-dns` gives reqwest a pure-Rust DNS resolver. Required for fully
+# static musl binaries — the default getaddrinfo resolver fails (no NSS) in a
+# static musl build, which silently breaks every outbound API call.
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls", "rustls-tls-webpki-roots", "hickory-dns"], default-features = false }
 reqwest-eventsource = "0.6"
 
 # Serialization
@@ -106,6 +112,12 @@ cersei-embeddings = { path = "crates/cersei-embeddings", version = "0.1.9" }
 cersei-compression = { path = "crates/cersei-compression", version = "0.1.9" }
 cersei-skills = { path = "crates/cersei-skills", version = "0.1.9" }
 cersei-vms = { path = "crates/cersei-vms", version = "0.1.9" }
+cersei-agentlang = { path = "crates/cersei-agentlang", version = "0.1.9" }
+cersei-agentrl = { path = "crates/cersei-agentrl", version = "0.1.9" }
+
+# Google Cloud auth (service-account → self-refreshing OAuth tokens for Vertex).
+# rustls only — keeps the static-musl build OpenSSL-free.
+gcp_auth = { version = "0.12", features = ["webpki-roots"] }
 
 [profile.release]
 strip = true

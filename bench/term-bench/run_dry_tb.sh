@@ -30,6 +30,7 @@ DATASET="terminal-bench@2.0"
 OUTPUT_DIR="$SCRIPT_DIR/tb-results/dry-run"
 TIMEOUT_MULT="${TIMEOUT_MULT:-1.0}"
 USE_DAYTONA=true
+AGENTRL_ARGS=()
 
 # ─── Parse args ────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -38,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --task)         TASK="$2"; shift 2 ;;
     --timeout-mult) TIMEOUT_MULT="$2"; shift 2 ;;
     --local)        USE_DAYTONA=false; shift ;;
+    --agentrl)      AGENTRL_ARGS+=("--agent-kwarg" "enable_agentrl=true"); shift ;;
     --help|-h)
       echo "Usage: $0 [--model provider/model] [--task name] [--local]"
       echo ""
@@ -155,7 +157,8 @@ PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" uv run harbor run \
     --timeout-multiplier "$TIMEOUT_MULT" \
     --env-file "$ENV_FILE" \
     $ENV_FLAG \
-    -y
+    -y \
+    ${AGENTRL_ARGS[@]+"${AGENTRL_ARGS[@]}"}
 
 EXIT_CODE=$?
 
