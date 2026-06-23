@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.1] - 2026-06-23
+
+### Added
+
+- **New crate: `cersei-workflows`.** A first-party workflow engine designed so an entire workflow round-trips to and from a visual builder (React + xyflow), powering the Atlas workflow UI. Feature-gated behind `workflows`; mirrors the Mastra DX (`createStep`/`createWorkflow`, `.then`, input/output JSON schemas, `.start()`/`.stream()`, shared state, workflows-as-steps, suspend/resume, status-discriminated run results). Docs: [Overview](https://cersei.pacifio.dev/docs/workflows-overview) · [API](https://cersei.pacifio.dev/docs/workflows-api) · [Cookbook](https://cersei.pacifio.dev/docs/workflows-cookbook).
+  - **`ir`** — the serializable `WorkflowDef` (`nodes` + `edges`) is the single source of truth; the programmatic `WorkflowBuilder` and the UI emit the *same* IR (one IR, two front-ends), compiled once by `Workflow::compile`. Control flow covers sequential (`then`), parallel fan-out/`Join`, conditional `Branch`, `Loop` (`dowhile`/`dountil`/`foreach`), and `Map` reshape nodes, each with a clean xyflow mapping. `UiHints` carry x/y/label and are ignored at execution time, keeping the IR lossless across the React Flow boundary.
+  - **`step`** — a `Step` trait mirroring `cersei_tools::Tool` (id + input/output JSON schema + async `execute`), plus first-party `FnStep`, `AgentStep` (wraps a `cersei_agent::Agent`), `ToolStep` (wraps any `Tool`), and `WorkflowStep` (nested workflows).
+  - **`registry`** — a `StepRegistry` (mirrors AgentRL's `ToolRegistry`) maps step-ids to executable steps; UI JSON carries only references, the host supplies implementations, and `catalog()` feeds the builder palette.
+  - **`condition`** — a small serde predicate enum over JSON-pointer paths (UI-editable, side-effect-free) instead of an opaque expression language, so branches render and edit structurally in the UI.
+  - **`executor` / `events` / `store`** — a memoized recursive DAG walker; a `Serialize`-able `WorkflowEvent`/`WorkflowStream` for live UI status over SSE/WebSocket; and an in-memory `RunStore` backing snapshot-driven suspend/resume.
+- The `workflows` feature is opt-in on the `cersei` facade (`cersei = { version = "0.2.1", features = ["workflows"] }`), re-exported as `cersei::workflows` with the common types in `cersei::prelude`.
+
+### Changed
+
+- Workspace bumped to **0.2.1** across every crate via `version.workspace = true`; the layout now includes `cersei-workflows`.
+
 ## [0.2.0] - 2026-06-19
 
 ### Added

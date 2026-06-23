@@ -38,6 +38,8 @@ pub use cersei_vms as vms;
 pub use cersei_agentlang as agentlang;
 #[cfg(feature = "agentrl")]
 pub use cersei_agentrl as agentrl;
+#[cfg(feature = "workflows")]
+pub use cersei_workflows as workflows;
 
 // Convenience re-exports for common providers
 pub use cersei_provider::anthropic::Anthropic;
@@ -77,6 +79,13 @@ pub mod prelude {
 
     // Derive macro
     pub use cersei_tools_derive::Tool;
+
+    // Workflows
+    #[cfg(feature = "workflows")]
+    pub use cersei_workflows::{
+        FnStep, RunStatus, Step, StepContext, StepOutcome, StepRegistry, Workflow, WorkflowBuilder,
+        WorkflowDef, WorkflowEvent, WorkflowResult,
+    };
 
     // Re-export for derive macro usage
     pub use async_trait::async_trait;

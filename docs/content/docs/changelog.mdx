@@ -32,6 +32,20 @@ export function Tag({ type }) {
   );
 }
 
+<Version version="0.2.1" date="2026-06-23">
+
+<Tag type="added" /> **New crate: `cersei-workflows`.** A first-party workflow engine built so an entire workflow round-trips to and from a visual builder (React + xyflow) — the engine behind the **Atlas** workflow UI. Mirrors the Mastra DX (`createStep`/`createWorkflow`, `.then`, input/output JSON schemas, `.start()`/`.stream()`, shared state, workflows-as-steps, suspend/resume, status-discriminated run results). Feature-gated behind `workflows`. Docs: [Overview](/docs/workflows-overview) · [API](/docs/workflows-api) · [Cookbook](/docs/workflows-cookbook).
+
+<Tag type="added" /> **One IR, two front-ends.** The serializable `WorkflowDef` (`{ nodes, edges, entry }`) is the single source of truth; the programmatic `WorkflowBuilder` and the xyflow UI emit the *same* IR, compiled once by `Workflow::compile(def, &registry)`. Control flow covers sequential (`then`), parallel fan-out + `Join`, conditional `Branch`, `Loop` (`dowhile`/`dountil`/`foreach`), and `Map` reshape nodes, each with a clean xyflow mapping. `UiHints` (x/y/label) are ignored at execution time, so the IR is lossless across the React Flow boundary.
+
+<Tag type="added" /> **Steps mirror tools.** A `Step` trait shaped like `cersei_tools::Tool` (id + input/output JSON schema + async `execute`), with first-party `FnStep`, `AgentStep` (wraps a `cersei_agent::Agent`), `ToolStep` (wraps any `Tool`), and `WorkflowStep` (nested workflows). A `StepRegistry` (mirroring AgentRL's `ToolRegistry`) maps step-ids to implementations — UI JSON carries only references — and `catalog()` feeds the builder palette. Branch predicates are a small serde `Condition` enum over JSON-pointer paths, so they render and edit structurally in the UI rather than as opaque code.
+
+<Tag type="added" /> **Live status + resumable runs.** A `Serialize`-able `WorkflowEvent`/`WorkflowStream` streams `StepStarted`/`StepCompleted`/`BranchTaken`/`StateUpdated`/… over SSE or WebSocket for live UI updates, and a snapshot-driven `RunStore` backs in-memory suspend/resume via `Workflow::resume(run_id, node_id, data)`.
+
+<Tag type="changed" /> **Workspace bumped to `0.2.1`** across every crate via `version.workspace = true`; the layout now includes `cersei-workflows`.
+
+</Version>
+
 <Version version="0.2.0" date="2026-06-19">
 
 <Tag type="added" /> **New crate: `cersei-agentrl`.** AgentRL — a self-evolving orchestration layer on top of the Cersei agent SDK. Governs the run → fail → trace → plan → sandbox → promote → register loop via an `ExecutionGraph` and a dynamic `ToolRegistry`. `graph` / `graph_reporter` build a failure-tracing DAG from agent events; `registry` is a persisted, searchable database of agent-built tools; `orchestrator` is the RL loop over the `AgentRlRunner` trait; `scrub` enforces the hard rule that no secrets reach persisted artifacts. Docs: [Overview](/docs/agentrl-overview) · [API](/docs/agentrl-api) · [Template](/docs/agentrl-template) · [Cookbook](/docs/agentrl-cookbook).

@@ -23,6 +23,7 @@ cersei-mcp = { workspace = true }
 cersei-vms = { workspace = true, optional = true }
 cersei-agentlang = { workspace = true, optional = true }
 cersei-agentrl = { workspace = true, optional = true }
+cersei-workflows = { workspace = true, optional = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -47,6 +48,8 @@ vms = ["dep:cersei-vms", "cersei-tools/vms"]
 agentlang = ["dep:cersei-agentlang"]
 # AgentRL — the self-evolving orchestration layer (pulls in agentlang + vms).
 agentrl = ["dep:cersei-agentrl", "agentlang", "vms"]
+# Workflows — the serializable, UI-buildable workflow engine.
+workflows = ["dep:cersei-workflows"]
 
 [dev-dependencies]
 tokio = { workspace = true }
