@@ -18,6 +18,7 @@ pub mod git_utils;
 pub mod glob_tool;
 pub mod grep_tool;
 pub mod lsp_tool;
+pub mod multi_edit;
 pub mod notebook_edit;
 pub mod permissions;
 pub mod plan_mode;
@@ -285,12 +286,13 @@ pub fn coding() -> Vec<Box<dyn Tool>> {
     tools
 }
 
-/// File system tools: Read, Write, Edit, Glob, Grep, NotebookEdit.
+/// File system tools: Read, Write, Edit, MultiEdit, ApplyPatch, Glob, Grep, NotebookEdit.
 pub fn filesystem() -> Vec<Box<dyn Tool>> {
     vec![
         Box::new(file_read::FileReadTool),
         Box::new(file_write::FileWriteTool),
         Box::new(file_edit::FileEditTool),
+        Box::new(multi_edit::MultiEditTool),
         Box::new(apply_patch::ApplyPatchTool),
         Box::new(glob_tool::GlobTool),
         Box::new(grep_tool::GrepTool),

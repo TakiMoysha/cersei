@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.4] - 2026-06-28
+
+### Added
+
+- **New `MultiEdit` tool — apply several string replacements to one file atomically.** Weaker models bungle refactors that need many separate `Edit` calls (e.g. a variable rename touching several lines): each call re-reads stale context and the sequence drifts. `MultiEdit` takes an ordered `edits: [{old_string, new_string, replace_all?}]` list, applies them **sequentially in memory** (each edit sees the previous edit's result), and writes **all-or-nothing** — if any edit fails to match, the file is left untouched and the failing edit is named (`edit N of M`) with a corrective message. Every edit routes through the same tolerant replacer ladder as `Edit`, so it inherits whitespace/indentation tolerance and the destructive-match guard, plus the same input coercion (aliased field names, stringified booleans, missing `new_string` ⇒ deletion). Registered in `cersei_tools::filesystem()` (and thus `all()`/`coding()`).
+  - For a single-pattern mass replace (rename `foo`→`bar` everywhere), `Edit`/`MultiEdit` with `replace_all: true` already does it in one call; `MultiEdit` adds the case of *several distinct* edits in one atomic call.
+
+### Changed
+
+- Workspace bumped to **0.2.4** across every crate via `version.workspace = true`.
+
 ## [0.2.3] - 2026-06-28
 
 ### Changed

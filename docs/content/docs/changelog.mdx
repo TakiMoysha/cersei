@@ -32,6 +32,14 @@ export function Tag({ type }) {
   );
 }
 
+<Version version="0.2.4" date="2026-06-28">
+
+<Tag type="added" /> **New `MultiEdit` tool — apply several string replacements to one file atomically.** Weaker models bungle refactors that need many separate `Edit` calls (e.g. a variable rename touching several lines): each call re-reads stale context and the sequence drifts. `MultiEdit` takes an ordered `edits: [{old_string, new_string, replace_all?}]` list, applies them **sequentially in memory** (each edit sees the previous edit's result), and writes **all-or-nothing** — if any edit fails to match, the file is left untouched and the failing edit is named (`edit N of M`) with a corrective message. Every edit routes through the same tolerant replacer ladder as `Edit`, so it inherits whitespace/indentation tolerance, the destructive-match guard, and input coercion. For a single-pattern mass replace (rename `foo`→`bar` everywhere), `Edit`/`MultiEdit` with `replace_all: true` already does it in one call; `MultiEdit` adds the case of *several distinct* edits in one atomic call.
+
+<Tag type="changed" /> **Workspace bumped to `0.2.4`** across every crate via `version.workspace = true`.
+
+</Version>
+
 <Version version="0.2.3" date="2026-06-28">
 
 <Tag type="changed" /> **The `Edit` tool tolerates whitespace/indentation drift** instead of requiring a byte-exact `old_string`. Exact matching made edits brittle: weaker BYOK models (Qwen, DeepSeek, Gemini Flash) routinely drift on leading whitespace and indentation, so an otherwise-correct `old_string` failed with `old_string not found` and the model fell back to slow, error-prone `sed`/`cat` edits. `Edit` (and the `tool_primitives::fs::edit_file` primitive) now run a **replacer ladder** — exact match first, then line-trimmed, block-anchor, whitespace-normalized, and indentation-flexible strategies. Every strategy only yields a candidate that *actually exists in the file*, so a fuzzy match relaxes *how* the text is located, never *what* gets written. New primitive: `tool_primitives::replace::replace`.
