@@ -30,20 +30,45 @@ Message::user("Hello")
 Message::assistant("Hi there!")
 Message::system("You are helpful.")
 message.get_text()  // -> Option<&str>
+
+// Multimodal: text + files (images, video, audio, PDFs) in one call.
+Message::user_with_files("Describe these", &["diagram.png", "clip.mp4"])?;
+Message::user_with_media("Caption", vec![ContentBlock::from_path("a.png")?]);
 ```
+
+See [Multimodal Input](/docs/multimodal) for the full file-passing API.
 
 ## ContentBlock
 
 ```rust
 pub enum ContentBlock {
     Text { text: String },
-    Image { source: ImageSource, media_type: String },
+    Image { source: ImageSource },
     ToolUse { id: String, name: String, input: Value },
-    ToolResult { tool_use_id: String, content: String, is_error: bool },
-    Thinking { thinking: String },
-    Document { source: String, media_type: String },
-    Opaque(Value),
+    ToolResult { tool_use_id: String, content: ToolResultContent, is_error: Option<bool> },
+    Thinking { thinking: String, signature: String },
+    RedactedThinking { data: String },
+    Document { source: DocumentSource, title: Option<String>, context: Option<String>, citations: Option<CitationsConfig> },
+    Opaque,
 }
+
+// Image / document payloads carry inline base64 *or* a URL.
+pub struct ImageSource {
+    pub source_type: String,        // "base64" | "url"
+    pub media_type: Option<String>, // e.g. "image/png", "video/mp4"
+    pub data: Option<String>,       // base64 (when source_type = "base64")
+    pub url: Option<String>,        // remote URL (when source_type = "url")
+}
+// DocumentSource has the same shape, for PDFs/text.
+```
+
+Build them with the high-level constructors instead of by hand:
+
+```rust
+ContentBlock::from_path("photo.jpg")?;           // read file, sniff MIME, base64
+ContentBlock::image_bytes("image/png", &bytes);  // from raw bytes you hold
+ContentBlock::image_url("https://x/y.png");      // remote image
+ContentBlock::document_bytes("application/pdf", &pdf);
 ```
 
 ## Usage

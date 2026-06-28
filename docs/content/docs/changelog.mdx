@@ -32,6 +32,20 @@ export function Tag({ type }) {
   );
 }
 
+<Version version="0.2.2" date="2026-06-24">
+
+<Tag type="added" /> **Multimodal input across the SDK.** Messages can carry images, video, audio, and documents (PDF/text), not just text — and Anthropic, OpenAI, and Gemini each serialize them to their native wire format. The provider-agnostic `ContentBlock::Image` / `ContentBlock::Document` blocks already existed; this release adds the high-level constructors to build them and teaches every provider to send them. Docs: [Multimodal Input](/docs/multimodal).
+
+<Tag type="added" /> **One-line file attachment.** `ContentBlock::from_path(path)` reads a local file, **auto-detects the MIME type** from magic bytes (PNG/JPEG/GIF/WebP/PDF/MP4/MOV/WebM/MP3/WAV/Ogg…) with an extension fallback, base64-encodes it, and routes to an `Image` block (image/video/audio) or a `Document` block (PDF/text). Lower-level `image_bytes`/`image_base64`/`image_url` + `document_*` + `media_bytes(mime, bytes)` are there when you want control, and `Message::user_with_files("caption", &paths)` / `Message::user_with_media(text, blocks)` build a multimodal user message in one call. All re-exported through `cersei::prelude`, alongside `MediaKind` and `detect_mime`.
+
+<Tag type="added" /> **Provider wire formats.** OpenAI emits a typed `parts` array — `image_url` data-URLs for images, `file` parts for PDFs (video/audio dropped, since Chat Completions can't take them). Gemini emits `inlineData` for base64 and `fileData`/`fileUri` for URLs — the same path for images, **video**, audio, and PDFs. Anthropic already round-tripped images and PDFs via direct serde. **`Gemini` is now exported from the `cersei` facade** (`cersei::Gemini`, in the prelude).
+
+<Tag type="changed" /> **Workspace bumped to `0.2.2`** across every crate via `version.workspace = true`.
+
+<Tag type="changed" /> **Gemini `thinking_budget` is configurable** via `ProviderOptions` (mirrors the Anthropic provider). `gemini-2.5`+ spends dynamic-thinking tokens out of `maxOutputTokens`, which can silently truncate a small-budget answer; `options.set("thinking_budget", 0)` disables thinking so the whole budget goes to the visible response.
+
+</Version>
+
 <Version version="0.2.1" date="2026-06-23">
 
 <Tag type="added" /> **New crate: `cersei-workflows`.** A first-party workflow engine built so an entire workflow round-trips to and from a visual builder (React + xyflow) — the engine behind the **Atlas** workflow UI. Mirrors the Mastra DX (`createStep`/`createWorkflow`, `.then`, input/output JSON schemas, `.start()`/`.stream()`, shared state, workflows-as-steps, suspend/resume, status-discriminated run results). Feature-gated behind `workflows`. Docs: [Overview](/docs/workflows-overview) · [API](/docs/workflows-api) · [Cookbook](/docs/workflows-cookbook).

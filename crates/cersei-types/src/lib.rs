@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 
+mod media;
+pub use media::{detect_mime, MediaKind};
+
 // ─── Roles ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]

@@ -43,6 +43,7 @@ pub use cersei_workflows as workflows;
 
 // Convenience re-exports for common providers
 pub use cersei_provider::anthropic::Anthropic;
+pub use cersei_provider::gemini::Gemini;
 pub use cersei_provider::openai::OpenAi;
 
 /// The prelude — import this for the most common types.
@@ -53,12 +54,12 @@ pub mod prelude {
 
     // Providers
     pub use crate::provider::{Auth, CompletionRequest, Provider, ProviderOptions};
-    pub use crate::{Anthropic, OpenAi};
+    pub use crate::{Anthropic, Gemini, OpenAi};
 
     // Types
     pub use cersei_types::{
-        CerseiError, ContentBlock, Message, MessageContent, MessageMetadata, Result, Role,
-        StopReason, StreamEvent, ToolDefinition, Usage,
+        CerseiError, ContentBlock, DocumentSource, ImageSource, MediaKind, Message, MessageContent,
+        MessageMetadata, Result, Role, StopReason, StreamEvent, ToolDefinition, Usage,
     };
 
     // Tools

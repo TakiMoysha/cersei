@@ -115,6 +115,24 @@ impl Provider for Gemini {
                                 ContentBlock::Text { text } => {
                                     parts.push(serde_json::json!({ "text": text }));
                                 }
+                                ContentBlock::Image { source } => {
+                                    if let Some(part) = gemini_media_part(
+                                        source.media_type.as_deref(),
+                                        source.data.as_deref(),
+                                        source.url.as_deref(),
+                                    ) {
+                                        parts.push(part);
+                                    }
+                                }
+                                ContentBlock::Document { source, .. } => {
+                                    if let Some(part) = gemini_media_part(
+                                        source.media_type.as_deref(),
+                                        source.data.as_deref(),
+                                        source.url.as_deref(),
+                                    ) {
+                                        parts.push(part);
+                                    }
+                                }
                                 ContentBlock::ToolResult {
                                     tool_use_id,
                                     content,
@@ -233,6 +251,13 @@ impl Provider for Gemini {
 
         if !request.stop_sequences.is_empty() {
             body["generationConfig"]["stopSequences"] = serde_json::json!(request.stop_sequences);
+        }
+
+        // Optional thinking budget (gemini-2.5+). `thinking_budget = 0` disables
+        // dynamic thinking, which otherwise silently consumes maxOutputTokens.
+        if let Some(budget) = request.options.get::<i32>("thinking_budget") {
+            body["generationConfig"]["thinkingConfig"] =
+                serde_json::json!({ "thinkingBudget": budget });
         }
 
         // Tool declarations
@@ -509,6 +534,30 @@ impl Provider for Gemini {
     }
 }
 
+// ─── Multimodal helpers ──────────────────────────────────────────────────────
+
+/// Build a Gemini `parts` entry for inline or remote media. Gemini accepts
+/// images, video, audio, and PDFs the same way: `inlineData` for base64 bytes,
+/// or `fileData` with a `fileUri` for remote/Files-API URLs.
+fn gemini_media_part(
+    mime: Option<&str>,
+    data: Option<&str>,
+    url: Option<&str>,
+) -> Option<serde_json::Value> {
+    let mime = mime.unwrap_or("application/octet-stream");
+    if let Some(data) = data {
+        return Some(serde_json::json!({
+            "inlineData": { "mimeType": mime, "data": data },
+        }));
+    }
+    if let Some(url) = url {
+        return Some(serde_json::json!({
+            "fileData": { "mimeType": mime, "fileUri": url },
+        }));
+    }
+    None
+}
+
 // ─── Builder ─────────────────────────────────────────────────────────────────
 
 #[derive(Default)]
@@ -552,5 +601,29 @@ impl GeminiBuilder {
                 .unwrap_or_else(|| "gemini-3.1-pro-preview".to_string()),
             client: reqwest::Client::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod multimodal_tests {
+    use super::*;
+
+    #[test]
+    fn inline_data_for_base64() {
+        let part = gemini_media_part(Some("video/mp4"), Some("QUJD"), None).unwrap();
+        assert_eq!(part["inlineData"]["mimeType"], "video/mp4");
+        assert_eq!(part["inlineData"]["data"], "QUJD");
+    }
+
+    #[test]
+    fn file_data_for_url() {
+        let part = gemini_media_part(Some("image/png"), None, Some("gs://b/x.png")).unwrap();
+        assert_eq!(part["fileData"]["mimeType"], "image/png");
+        assert_eq!(part["fileData"]["fileUri"], "gs://b/x.png");
+    }
+
+    #[test]
+    fn empty_source_yields_nothing() {
+        assert!(gemini_media_part(Some("image/png"), None, None).is_none());
     }
 }

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.2] - 2026-06-24
+
+### Added
+
+- **Multimodal input across the SDK.** Messages can now carry images, video, audio, and documents (PDF/text) — not just text — and the three first-party providers serialize them to each backend's native wire format. The provider-agnostic blocks (`ContentBlock::Image` / `ContentBlock::Document`) already existed; this release adds the high-level constructors to build them and teaches every provider to send them. Docs: [Multimodal Input](https://cersei.pacifio.dev/docs/multimodal).
+  - **High-level constructors** in `cersei-types` (re-exported through `cersei::prelude`):
+    - `ContentBlock::from_path(path)` — reads a local file, **auto-detects the MIME type** from magic bytes (PNG/JPEG/GIF/WebP/PDF/MP4/MOV/WebM/MP3/WAV/Ogg…) with an extension fallback, base64-encodes it, and routes to an `Image` block (image/video/audio) or a `Document` block (PDF/text).
+    - `ContentBlock::image_bytes` / `image_base64` / `image_url`, and the `document_*` equivalents, plus `media_bytes(mime, bytes)` when you want to set the type explicitly.
+    - `Message::user_with_files("caption", &paths)` and `Message::user_with_media(text, blocks)` for one-call multimodal user messages.
+    - `MediaKind` + `detect_mime(bytes, path)` exported for callers that want the classifier directly.
+  - **Provider serialization.** OpenAI now emits a typed `parts` array (`image_url` data-URLs for images, `file` parts for PDFs; video/audio are dropped since Chat Completions can't accept them). Gemini emits `inlineData` for base64 and `fileData`/`fileUri` for URLs — the same path for images, **video**, audio, and PDFs. Anthropic already round-tripped images and PDFs via direct serde (now covered by a wire-shape test).
+  - **`Gemini` is now exported from the `cersei` facade** (`cersei::Gemini`, in the prelude) — previously only reachable via `cersei_provider::gemini::Gemini`.
+  - **Examples.** `cersei/examples/multimodal.rs` (provider-agnostic) and `cersei/examples/gemini_vision_test.rs` (a live image-analysis smoke test).
+
+### Changed
+
+- Workspace bumped to **0.2.2** across every crate via `version.workspace = true`.
+- **Gemini `thinking_budget` is now configurable** via `ProviderOptions` (mirrors the Anthropic provider). `gemini-2.5`+ models spend dynamic-thinking tokens out of `maxOutputTokens`, which silently truncates a small-budget response; `options.set("thinking_budget", 0)` disables thinking so the full budget goes to the visible answer. Surfaces as `generationConfig.thinkingConfig.thinkingBudget`.
+
 ## [0.2.1] - 2026-06-23
 
 ### Added

@@ -104,23 +104,50 @@ impl Provider for OpenAi {
                                 }));
                             }
                         }
-                        // Also include any text blocks as a user message
-                        let text: String = blocks
-                            .iter()
-                            .filter_map(|b| {
-                                if let ContentBlock::Text { text } = b {
-                                    Some(text.as_str())
-                                } else {
-                                    None
+                        // Collect text + multimodal (image/PDF) parts into a
+                        // single user message. OpenAI takes content as an array
+                        // of typed parts when any non-text media is present.
+                        let mut parts: Vec<serde_json::Value> = Vec::new();
+                        for block in blocks {
+                            match block {
+                                ContentBlock::Text { text } => {
+                                    parts.push(serde_json::json!({
+                                        "type": "text",
+                                        "text": text,
+                                    }));
                                 }
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        if !text.is_empty() {
-                            api_messages.push(serde_json::json!({
-                                "role": "user",
-                                "content": text,
-                            }));
+                                ContentBlock::Image { source } => {
+                                    if let Some(url) = openai_image_url(source) {
+                                        parts.push(serde_json::json!({
+                                            "type": "image_url",
+                                            "image_url": { "url": url },
+                                        }));
+                                    }
+                                }
+                                ContentBlock::Document { source, .. } => {
+                                    if let Some(part) = openai_file_part(source) {
+                                        parts.push(part);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        match parts.as_slice() {
+                            [] => {}
+                            // A single text part collapses to a plain string for
+                            // backward compatibility with text-only callers.
+                            [only] if only["type"] == "text" => {
+                                api_messages.push(serde_json::json!({
+                                    "role": "user",
+                                    "content": only["text"].clone(),
+                                }));
+                            }
+                            _ => {
+                                api_messages.push(serde_json::json!({
+                                    "role": "user",
+                                    "content": parts,
+                                }));
+                            }
                         }
                     } else {
                         api_messages.push(serde_json::json!({
@@ -477,6 +504,38 @@ impl Provider for OpenAi {
     }
 }
 
+// ─── Multimodal helpers ──────────────────────────────────────────────────────
+
+/// Convert an [`ImageSource`] to the `image_url.url` string OpenAI expects.
+/// Base64 sources become `data:` URLs; remote URL sources pass through. Returns
+/// `None` for non-image media (e.g. video), which the Chat Completions API can't
+/// accept, so it's dropped rather than rejected by the server.
+fn openai_image_url(source: &ImageSource) -> Option<String> {
+    if let Some(mt) = &source.media_type {
+        if !mt.starts_with("image/") {
+            return None;
+        }
+    }
+    if let Some(url) = &source.url {
+        return Some(url.clone());
+    }
+    let data = source.data.as_ref()?;
+    let mt = source.media_type.as_deref().unwrap_or("image/png");
+    Some(format!("data:{mt};base64,{data}"))
+}
+
+/// Convert a [`DocumentSource`] to an OpenAI `file` content part. Only base64
+/// data is supported (sent as a `file_data` data URL); URL-only documents are
+/// dropped since Chat Completions has no remote-file fetch.
+fn openai_file_part(source: &DocumentSource) -> Option<serde_json::Value> {
+    let data = source.data.as_ref()?;
+    let mt = source.media_type.as_deref().unwrap_or("application/pdf");
+    Some(serde_json::json!({
+        "type": "file",
+        "file": { "file_data": format!("data:{mt};base64,{data}") },
+    }))
+}
+
 // ─── Builder ─────────────────────────────────────────────────────────────────
 
 #[derive(Default)]
@@ -517,5 +576,51 @@ impl OpenAiBuilder {
             default_model: self.model.unwrap_or_else(|| "gpt-4o".to_string()),
             client: reqwest::Client::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod multimodal_tests {
+    use super::*;
+
+    #[test]
+    fn base64_image_becomes_data_url() {
+        let block = ContentBlock::image_base64("image/png", "QUJD");
+        let ContentBlock::Image { source } = block else {
+            panic!("expected image");
+        };
+        assert_eq!(
+            openai_image_url(&source).as_deref(),
+            Some("data:image/png;base64,QUJD")
+        );
+    }
+
+    #[test]
+    fn remote_image_url_passes_through() {
+        let block = ContentBlock::image_url("https://x/y.jpg");
+        let ContentBlock::Image { source } = block else {
+            panic!("expected image");
+        };
+        assert_eq!(openai_image_url(&source).as_deref(), Some("https://x/y.jpg"));
+    }
+
+    #[test]
+    fn video_is_dropped_for_openai() {
+        let block = ContentBlock::image_bytes("video/mp4", b"data");
+        let ContentBlock::Image { source } = block else {
+            panic!("expected image");
+        };
+        assert_eq!(openai_image_url(&source), None);
+    }
+
+    #[test]
+    fn pdf_becomes_file_part() {
+        let block = ContentBlock::document_base64("application/pdf", "UERG");
+        let ContentBlock::Document { source, .. } = block else {
+            panic!("expected document");
+        };
+        let part = openai_file_part(&source).unwrap();
+        assert_eq!(part["type"], "file");
+        assert_eq!(part["file"]["file_data"], "data:application/pdf;base64,UERG");
     }
 }

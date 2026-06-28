@@ -1,0 +1,123 @@
+---
+title: Multimodal Input
+description: Attach images, video, audio, and PDFs to messages — one provider-agnostic API, serialized to each backend's native format.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+# Multimodal Input
+
+Messages aren't text-only. A user message can carry **images, video, audio, and documents (PDF/text)** alongside text, and Cersei serializes each block to the wire format the target provider expects. The blocks are provider-agnostic — the same message can be sent to Anthropic, OpenAI, or Gemini, and each backend takes what it supports and drops the rest.
+
+## What each provider accepts
+
+| Media | Anthropic | OpenAI | Gemini |
+| --- | --- | --- | --- |
+| Images (PNG/JPEG/GIF/WebP) | ✅ | ✅ | ✅ |
+| PDF / documents | ✅ | ✅ (`file` part) | ✅ |
+| Video (MP4/MOV/WebM…) | — | — | ✅ |
+| Audio (MP3/WAV/Ogg…) | — | — | ✅ |
+
+Media a provider can't accept is silently omitted from that provider's request rather than sent and rejected — so a single multimodal message stays portable across backends.
+
+## Attach a file in one line
+
+`ContentBlock::from_path` reads the file, **detects its MIME type** from the leading bytes (with an extension fallback), base64-encodes it, and picks the right block type — an `Image` block for image/video/audio, a `Document` block for PDF/text.
+
+```rust
+use cersei::prelude::*;
+
+// text + several local files
+let msg = Message::user_with_files(
+    "Describe what you see and how to rebuild this layout in React.",
+    &["diagram.png", "screen-recording.mp4"],
+)?;
+```
+
+Everything here is re-exported through `cersei::prelude`.
+
+## Lower-level constructors
+
+When you already hold bytes, base64, or a URL — or want to set the MIME type explicitly — use the block constructors directly:
+
+```rust
+// Images
+ContentBlock::from_path("photo.jpg")?;             // read + sniff + encode
+ContentBlock::image_bytes("image/png", &bytes);    // raw bytes you hold
+ContentBlock::image_base64("image/png", b64_str);  // already base64
+ContentBlock::image_url("https://example.com/cat.jpg");
+
+// Documents (PDF, text, …)
+ContentBlock::document_bytes("application/pdf", &pdf_bytes);
+ContentBlock::document_url("https://example.com/report.pdf");
+
+// Explicit type, auto-routed to Image vs Document by MIME kind
+ContentBlock::media_bytes("video/mp4", &clip_bytes);
+
+// Build the message
+let msg = Message::user_with_media("Caption", vec![
+    ContentBlock::from_path("a.png")?,
+    ContentBlock::image_url("https://example.com/b.png"),
+]);
+```
+
+### MIME detection
+
+`detect_mime` is exported if you want the classifier on its own. It sniffs magic bytes for the formats the major providers accept (PNG, JPEG, GIF, WebP, PDF, MP4/MOV, WebM, MP3, WAV, Ogg) and falls back to the file extension:
+
+```rust
+use cersei::prelude::{detect_mime, MediaKind};
+
+let mime = detect_mime(&bytes, Some(std::path::Path::new("clip.mp4"))); // Some("video/mp4")
+let kind = MediaKind::from_mime("video/mp4");                            // MediaKind::Video
+```
+
+If the type can't be determined, `from_path` returns `CerseiError::Config` — pass the MIME explicitly via `media_bytes` in that case.
+
+## Sending it
+
+Multimodal messages flow through the normal request path — no special call:
+
+```rust
+use cersei::prelude::*;
+use cersei::provider::{CompletionRequest, Provider, ProviderOptions};
+
+let image = ContentBlock::from_path("demo.png")?;
+let message = Message::user_with_media("What UI is this?", vec![image]);
+
+let provider = Gemini::from_env()?; // GEMINI_API_KEY or GOOGLE_API_KEY
+let request = CompletionRequest {
+    model: "gemini-2.5-flash".into(),
+    messages: vec![message],
+    system: Some("You are a careful visual analyst.".into()),
+    tools: Vec::new(),
+    max_tokens: 4096,
+    temperature: None,
+    stop_sequences: Vec::new(),
+    options: ProviderOptions::default(),
+};
+
+let response = provider.complete(request).await?.collect().await?;
+println!("{}", response.message.get_all_text());
+```
+
+The same message also works through the `Agent` runner via `AgentBuilder::with_messages`.
+
+<Callout type="warn">
+**Gemini 2.5 + thinking budget.** `gemini-2.5`+ models spend dynamic-thinking tokens out of `maxOutputTokens`, so a small budget can return a truncated answer with `stop_reason = MaxTokens` even though little visible text was produced. Disable thinking to give the whole budget to the answer:
+
+```rust
+let mut options = ProviderOptions::default();
+options.set("thinking_budget", 0); // -> generationConfig.thinkingConfig.thinkingBudget
+```
+</Callout>
+
+## Runnable examples
+
+- `cersei/examples/multimodal.rs` — provider-agnostic; picks Anthropic/Gemini/OpenAI from whichever key is set.
+- `cersei/examples/gemini_vision_test.rs` — a live image-analysis smoke test.
+
+```bash
+set -a; source .env; set +a
+cargo run --example multimodal -- diagram.png clip.mp4
+```
