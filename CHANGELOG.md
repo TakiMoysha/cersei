@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.3] - 2026-06-28
+
+### Changed
+
+- **The `Edit` tool now tolerates whitespace/indentation drift instead of requiring a byte-exact `old_string`.** Exact matching made edits brittle: weaker BYOK models (Qwen, DeepSeek, Gemini Flash) routinely drift on leading whitespace and indentation, so an otherwise-correct `old_string` failed with `old_string not found` and the model fell back to slow, error-prone `sed`/`cat` edits. `Edit` (and the `tool_primitives::fs::edit_file` primitive) now run a **replacer ladder**: exact match first, then line-trimmed, block-anchor, whitespace-normalized, and indentation-flexible strategies. Every strategy only ever yields a candidate that *actually exists in the file*, so a fuzzy match relaxes *how* the text is located, never *what* gets written.
+  - **Destructive-match guard.** The line-based strategies require every line to match (after normalization); the one anchor-only strategy (block-anchor) is additionally gated by a similarity threshold so a coincidental first/last-line pair can't rewrite an unrelated block. Exact matches are still tried first, so genuine duplicates report `AmbiguousMatch` rather than being silently fuzzed.
+  - **Input coercion + corrective errors.** The tool now accepts common near-miss field names (`path`/`old`/`new`), stringified booleans (`replace_all: "true"`), and a missing `new_string` (treated as a deletion). Failure messages now guide the model toward a fix (re-read the file; add context to disambiguate; set `replace_all`) instead of a bare error.
+  - New primitive: `tool_primitives::replace::replace`.
+- Workspace bumped to **0.2.3** across every crate via `version.workspace = true`.
+
 ## [0.2.2] - 2026-06-24
 
 ### Added

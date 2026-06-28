@@ -37,12 +37,14 @@ pub struct EditResult {
 #[derive(Debug)]
 pub enum EditError {
     Io(std::io::Error),
-    /// The old text was not found in the file.
+    /// The old text was not found in the file (by any matching strategy).
     NotFound,
     /// The old text appears multiple times and replace_all is false.
     AmbiguousMatch {
         count: usize,
     },
+    /// `old_text` and `new_text` are identical — the edit would be a no-op.
+    NoChange,
 }
 
 impl std::fmt::Display for EditError {
@@ -56,6 +58,7 @@ impl std::fmt::Display for EditError {
                     "old text found {count} times (use replace_all=true to replace all)"
                 )
             }
+            Self::NoChange => write!(f, "old text and new text are identical"),
         }
     }
 }
@@ -113,36 +116,50 @@ pub async fn write_file(path: &Path, content: &str) -> Result<(), std::io::Error
 
 /// String replacement in a file.
 ///
-/// If `replace_all` is false and the old text appears more than once,
-/// returns `EditError::AmbiguousMatch`. If old text is not found,
-/// returns `EditError::NotFound`.
+/// Matching is tolerant: an exact match is attempted first, and if that fails
+/// a ladder of progressively relaxed strategies (line-trimmed, block-anchor,
+/// whitespace-normalized, indentation-flexible) locates the text. See
+/// [`crate::tool_primitives::replace`] for the strategies and the
+/// destructive-match guard that keeps fuzzy matches from rewriting the wrong
+/// region. This tolerance matters for weaker BYOK models that drift on
+/// indentation/whitespace.
+///
+/// If `replace_all` is false and the old text appears verbatim more than once,
+/// returns `EditError::AmbiguousMatch`. If the text cannot be located by any
+/// strategy, returns `EditError::NotFound`.
 pub async fn edit_file(
     path: &Path,
     old_text: &str,
     new_text: &str,
     replace_all: bool,
 ) -> Result<EditResult, EditError> {
+    use super::replace::{replace, ReplaceError};
+
     let content = tokio::fs::read_to_string(path).await?;
 
-    let count = content.matches(old_text).count();
-    if count == 0 {
-        return Err(EditError::NotFound);
-    }
-    if count > 1 && !replace_all {
-        return Err(EditError::AmbiguousMatch { count });
-    }
+    let new_content = match replace(&content, old_text, new_text, replace_all) {
+        Ok(c) => c,
+        Err(ReplaceError::NotFound) => return Err(EditError::NotFound),
+        Err(ReplaceError::Ambiguous { count }) => {
+            return Err(EditError::AmbiguousMatch { count })
+        }
+        Err(ReplaceError::NoChange) => return Err(EditError::NoChange),
+        Err(ReplaceError::EmptyOldString) => return Err(EditError::NotFound),
+    };
 
-    let new_content = if replace_all {
-        content.replace(old_text, new_text)
+    // Count replacements by diffing occurrence counts is unreliable after a
+    // fuzzy match, so report based on mode: replace_all collapses every exact
+    // occurrence, a single edit is exactly one.
+    let replacements_made = if replace_all {
+        let exact = content.matches(old_text).count();
+        exact.max(1)
     } else {
-        content.replacen(old_text, new_text, 1)
+        1
     };
 
     tokio::fs::write(path, &new_content).await?;
 
-    Ok(EditResult {
-        replacements_made: if replace_all { count } else { 1 },
-    })
+    Ok(EditResult { replacements_made })
 }
 
 /// Produce a unified diff between the file's current content and proposed new content.

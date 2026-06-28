@@ -32,6 +32,18 @@ export function Tag({ type }) {
   );
 }
 
+<Version version="0.2.3" date="2026-06-28">
+
+<Tag type="changed" /> **The `Edit` tool tolerates whitespace/indentation drift** instead of requiring a byte-exact `old_string`. Exact matching made edits brittle: weaker BYOK models (Qwen, DeepSeek, Gemini Flash) routinely drift on leading whitespace and indentation, so an otherwise-correct `old_string` failed with `old_string not found` and the model fell back to slow, error-prone `sed`/`cat` edits. `Edit` (and the `tool_primitives::fs::edit_file` primitive) now run a **replacer ladder** — exact match first, then line-trimmed, block-anchor, whitespace-normalized, and indentation-flexible strategies. Every strategy only yields a candidate that *actually exists in the file*, so a fuzzy match relaxes *how* the text is located, never *what* gets written. New primitive: `tool_primitives::replace::replace`.
+
+<Tag type="changed" /> **Destructive-match guard.** Line-based strategies require every line to match (after normalization); the anchor-only strategy (block-anchor) is additionally gated by a similarity threshold so a coincidental first/last-line pair can't rewrite an unrelated block. Exact matches are still tried first, so genuine duplicates report `AmbiguousMatch` rather than being silently fuzzed.
+
+<Tag type="changed" /> **Input coercion + corrective errors.** `Edit` now accepts common near-miss field names (`path`/`old`/`new`), stringified booleans (`replace_all: "true"`), and a missing `new_string` (treated as a deletion). Failure messages guide the model toward a fix (re-read the file; add context to disambiguate; set `replace_all`) instead of a bare error.
+
+<Tag type="changed" /> **Workspace bumped to `0.2.3`** across every crate via `version.workspace = true`.
+
+</Version>
+
 <Version version="0.2.2" date="2026-06-24">
 
 <Tag type="added" /> **Multimodal input across the SDK.** Messages can carry images, video, audio, and documents (PDF/text), not just text — and Anthropic, OpenAI, and Gemini each serialize them to their native wire format. The provider-agnostic `ContentBlock::Image` / `ContentBlock::Document` blocks already existed; this release adds the high-level constructors to build them and teaches every provider to send them. Docs: [Multimodal Input](/docs/multimodal).

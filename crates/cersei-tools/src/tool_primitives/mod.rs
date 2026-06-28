@@ -32,4 +32,5 @@ pub mod fs;
 pub mod git;
 pub mod http;
 pub mod process;
+pub mod replace;
 pub mod search;
