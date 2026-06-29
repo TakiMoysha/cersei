@@ -45,6 +45,8 @@ base64 = "0.22"
 tantivy = "0.22"
 cersei-embeddings = { workspace = true }
 cersei-vms = { workspace = true, optional = true }
+ignore = { workspace = true }
+grep = { workspace = true }
 
 [features]
 default = ["file-watch"]

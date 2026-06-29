@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.5] - 2026-06-29
+
+### Changed
+
+- **`Grep` is now native and in-process — no external `rg`/`grep` binary required.** The tool previously shelled out to ripgrep if `which` found it on `PATH`, else fell back to system `grep` (losing gitignore-awareness and speed). Since `rg` is rarely preinstalled, models that reached for it — directly or via the tool — failed on stock machines. `Grep` (and the `tool_primitives::search::grep` primitive) now use ripgrep's own library crates: [`ignore`](https://docs.rs/ignore) for a lock-free **parallel, gitignore-aware** recursive directory walk and [`grep`](https://docs.rs/grep) for the regex matcher/searcher. Behavior is now identical on every machine, and the tool description steers models to use `Grep` instead of running `rg` in Bash.
+  - **Respects `.gitignore`/`.ignore` and skips hidden + binary files by default** (gitignore is honored even outside a checked-out git repo). Output is sorted by `(file, line)` for **deterministic** results.
+  - **New `GrepOptions` fields** (`no_ignore`, `hidden`), both defaulting to today's behavior so `GrepOptions::default()` is unchanged. The `Grep` tool exposes `case_insensitive` and `hidden` in its input schema; `pattern`/`path`/`glob` and the 250-match cap are unchanged.
+  - New workspace dependencies: `ignore` and `grep` (both Unlicense OR MIT). MSRV stays satisfied (these track Rust 1.85).
+- Workspace bumped to **0.2.5** across every crate via `version.workspace = true`.
+
 ## [0.2.4] - 2026-06-28
 
 ### Added

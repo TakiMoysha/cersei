@@ -32,6 +32,14 @@ export function Tag({ type }) {
   );
 }
 
+<Version version="0.2.5" date="2026-06-29">
+
+<Tag type="changed" /> **`Grep` is now native and in-process — no external `rg`/`grep` binary required.** It previously shelled out to ripgrep if `which` found it on `PATH`, else fell back to system `grep` (losing gitignore-awareness and speed); since `rg` is rarely preinstalled, models that reached for it failed on stock machines. `Grep` (and the `tool_primitives::search::grep` primitive) now use ripgrep's own library crates — [`ignore`](https://docs.rs/ignore) for a lock-free **parallel, gitignore-aware** recursive walk and [`grep`](https://docs.rs/grep) for the matcher/searcher. Behavior is identical on every machine, and the tool description steers models to `Grep` instead of running `rg` in Bash. Respects `.gitignore`/`.ignore` and skips hidden/binary files by default (gitignore honored even outside a git repo); output is sorted by `(file, line)` for deterministic results. New `GrepOptions` fields `no_ignore`/`hidden` (defaulting to prior behavior); the tool gains `case_insensitive`/`hidden` schema fields. New deps `ignore` + `grep` (Unlicense OR MIT).
+
+<Tag type="changed" /> **Workspace bumped to `0.2.5`** across every crate via `version.workspace = true`.
+
+</Version>
+
 <Version version="0.2.4" date="2026-06-28">
 
 <Tag type="added" /> **New `MultiEdit` tool — apply several string replacements to one file atomically.** Weaker models bungle refactors that need many separate `Edit` calls (e.g. a variable rename touching several lines): each call re-reads stale context and the sequence drifts. `MultiEdit` takes an ordered `edits: [{old_string, new_string, replace_all?}]` list, applies them **sequentially in memory** (each edit sees the previous edit's result), and writes **all-or-nothing** — if any edit fails to match, the file is left untouched and the failing edit is named (`edit N of M`) with a corrective message. Every edit routes through the same tolerant replacer ladder as `Edit`, so it inherits whitespace/indentation tolerance, the destructive-match guard, and input coercion. For a single-pattern mass replace (rename `foo`→`bar` everywhere), `Edit`/`MultiEdit` with `replace_all: true` already does it in one call; `MultiEdit` adds the case of *several distinct* edits in one atomic call.
