@@ -250,6 +250,13 @@ impl Provider for OpenAi {
             body["temperature"] = serde_json::json!(temp);
         }
 
+        // Reasoning effort: provider-agnostic `reasoning_effort` option
+        // ("minimal"/"low"/"medium"/"high"), mapped onto the OpenAI request body.
+        // Only the o-series / gpt-5 reasoning models accept it.
+        if let Some(effort) = reasoning_effort_for(&model, &request.options) {
+            body["reasoning_effort"] = serde_json::json!(effort);
+        }
+
         if !request.tools.is_empty() {
             let tools: Vec<serde_json::Value> = request
                 .tools
@@ -536,6 +543,18 @@ fn openai_file_part(source: &DocumentSource) -> Option<serde_json::Value> {
     }))
 }
 
+/// Resolve the OpenAI `reasoning_effort` request field from the provider-agnostic
+/// `reasoning_effort` option, gated to models that accept it (o-series / gpt-5).
+/// Returns `None` (omit the field) for non-reasoning models or when unset.
+fn reasoning_effort_for(model: &str, options: &ProviderOptions) -> Option<String> {
+    let reasoning_model =
+        model.starts_with("gpt-5") || model.starts_with("o1") || model.starts_with("o3");
+    if !reasoning_model {
+        return None;
+    }
+    options.get::<String>("reasoning_effort")
+}
+
 // ─── Builder ─────────────────────────────────────────────────────────────────
 
 #[derive(Default)]
@@ -622,5 +641,19 @@ mod multimodal_tests {
         let part = openai_file_part(&source).unwrap();
         assert_eq!(part["type"], "file");
         assert_eq!(part["file"]["file_data"], "data:application/pdf;base64,UERG");
+    }
+
+    #[test]
+    fn reasoning_effort_only_on_reasoning_models_when_set() {
+        let mut opts = ProviderOptions::default();
+        opts.set("reasoning_effort", "high");
+
+        // Reasoning models map the option through...
+        assert_eq!(reasoning_effort_for("gpt-5.3", &opts).as_deref(), Some("high"));
+        assert_eq!(reasoning_effort_for("o3-mini", &opts).as_deref(), Some("high"));
+        // ...non-reasoning models omit it...
+        assert_eq!(reasoning_effort_for("gpt-4o", &opts), None);
+        // ...and an unset option omits it even on reasoning models.
+        assert_eq!(reasoning_effort_for("gpt-5.3", &ProviderOptions::default()), None);
     }
 }

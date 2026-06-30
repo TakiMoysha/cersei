@@ -217,6 +217,7 @@ pub struct AgentBuilder {
     max_tokens: u32,
     temperature: Option<f32>,
     thinking_budget: Option<u32>,
+    seed_usage: Option<Usage>,
     working_dir: Option<PathBuf>,
     permission_policy: Option<Arc<dyn PermissionPolicy>>,
     memory: Option<Arc<dyn Memory>>,
@@ -250,6 +251,7 @@ impl Default for AgentBuilder {
             max_tokens: 16384,
             temperature: None,
             thinking_budget: None,
+            seed_usage: None,
             working_dir: None,
             permission_policy: None,
             memory: None,
@@ -329,6 +331,13 @@ impl AgentBuilder {
 
     pub fn thinking_budget(mut self, tokens: u32) -> Self {
         self.thinking_budget = Some(tokens);
+        self
+    }
+
+    /// Seed the agent's cumulative token/cost usage. Use this when rebuilding an
+    /// agent per turn so cumulative totals carry over instead of resetting to zero.
+    pub fn with_cumulative_usage(mut self, usage: Usage) -> Self {
+        self.seed_usage = Some(usage);
         self
     }
 
@@ -485,7 +494,9 @@ impl AgentBuilder {
             messages: Arc::new(parking_lot::Mutex::new(
                 self.initial_messages.unwrap_or_default(),
             )),
-            cumulative_usage: Arc::new(parking_lot::Mutex::new(Usage::default())),
+            cumulative_usage: Arc::new(parking_lot::Mutex::new(
+                self.seed_usage.unwrap_or_default(),
+            )),
             cancel_token: self
                 .cancel_token
                 .unwrap_or_else(tokio_util::sync::CancellationToken::new),
@@ -496,5 +507,59 @@ impl AgentBuilder {
     /// Build + run in one shot.
     pub async fn run_with(self, prompt: &str) -> cersei_types::Result<AgentOutput> {
         self.build()?.run(prompt).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cersei_provider::{
+        CompletionRequest, CompletionStream, ProviderCapabilities, Provider,
+    };
+
+    /// Minimal provider that never produces output — enough to `build()` an agent.
+    struct StubProvider;
+
+    #[async_trait::async_trait]
+    impl Provider for StubProvider {
+        fn name(&self) -> &str {
+            "stub"
+        }
+        fn context_window(&self, _model: &str) -> u64 {
+            1000
+        }
+        fn capabilities(&self, _model: &str) -> ProviderCapabilities {
+            ProviderCapabilities::default()
+        }
+        async fn complete(&self, _request: CompletionRequest) -> cersei_types::Result<CompletionStream> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(CompletionStream::new(rx))
+        }
+    }
+
+    #[test]
+    fn cumulative_usage_defaults_to_zero() {
+        let agent = Agent::builder().provider(StubProvider).build().unwrap();
+        assert_eq!(agent.usage().input_tokens, 0);
+        assert_eq!(agent.usage().output_tokens, 0);
+    }
+
+    #[test]
+    fn seeded_cumulative_usage_is_restored() {
+        let seed = Usage {
+            input_tokens: 1234,
+            output_tokens: 567,
+            total_tokens: 1801,
+            ..Default::default()
+        };
+        let agent = Agent::builder()
+            .provider(StubProvider)
+            .with_cumulative_usage(seed.clone())
+            .build()
+            .unwrap();
+        let restored = agent.usage();
+        assert_eq!(restored.input_tokens, 1234);
+        assert_eq!(restored.output_tokens, 567);
+        assert_eq!(restored.total_tokens, 1801);
     }
 }
