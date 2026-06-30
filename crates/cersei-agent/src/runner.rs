@@ -747,6 +747,22 @@ pub async fn run_agent_streaming(
                         tool_error_counts.remove(&tool_name);
                     }
 
+                    // Compress before emitting ToolEnd so the savings stats ride
+                    // along on the event (error results are not compressed).
+                    let (capped_content, compression) = if result.is_error {
+                        (result.content.clone(), None)
+                    } else {
+                        let level = *agent.compression_level.lock();
+                        let (compressed, stats) =
+                            cersei_compression::compress_tool_output_with_stats(
+                                &tool_name,
+                                &tool_input,
+                                &result.content,
+                                level,
+                            );
+                        (cap_tool_result(&compressed), Some(stats))
+                    };
+
                     let _ = event_tx
                         .send(AgentEvent::ToolEnd {
                             name: tool_name.clone(),
@@ -754,6 +770,7 @@ pub async fn run_agent_streaming(
                             result: result.content.clone(),
                             is_error: result.is_error,
                             duration,
+                            compression,
                         })
                         .await;
                     agent.emit(AgentEvent::ToolEnd {
@@ -762,20 +779,8 @@ pub async fn run_agent_streaming(
                         result: result.content.clone(),
                         is_error: result.is_error,
                         duration,
+                        compression,
                     });
-
-                    let capped_content = if result.is_error {
-                        result.content.clone()
-                    } else {
-                        let level = *agent.compression_level.lock();
-                        let compressed = cersei_compression::compress_tool_output(
-                            &tool_name,
-                            &tool_input,
-                            &result.content,
-                            level,
-                        );
-                        cap_tool_result(&compressed)
-                    };
 
                     tool_calls.push(ToolCallRecord {
                         name: tool_name,

@@ -28,6 +28,9 @@ pub enum AgentEvent {
         result: String,
         is_error: bool,
         duration: Duration,
+        /// RTK compression metrics for this tool output, when compression ran
+        /// (None for error results, which are not compressed).
+        compression: Option<cersei_compression::CompressionStats>,
     },
     ToolPermissionCheck {
         name: String,

@@ -12,5 +12,5 @@ pub mod level;
 pub mod toml_rules;
 pub mod truncate;
 
-pub use dispatch::compress_tool_output;
+pub use dispatch::{compress_tool_output, compress_tool_output_with_stats, CompressionStats};
 pub use level::CompressionLevel;

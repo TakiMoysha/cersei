@@ -241,6 +241,7 @@ pub fn print_json_event(event: &cersei_agent::events::AgentEvent) {
             result,
             is_error,
             duration,
+            ..
         } => {
             serde_json::json!({"type": "tool_end", "name": name, "id": id, "result": result, "is_error": is_error, "duration_ms": duration.as_millis() as u64})
         }

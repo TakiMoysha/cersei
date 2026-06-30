@@ -455,6 +455,7 @@ fn handle_agent_event(state: &mut AppState, event: AgentEvent) {
             result,
             is_error,
             duration,
+            ..
         } => {
             if let Some(tool) = state.active_tools.iter_mut().rev().find(|t| t.name == name) {
                 tool.status = if is_error {

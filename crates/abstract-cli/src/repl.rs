@@ -315,6 +315,7 @@ async fn run_agent_streaming(
                 result,
                 is_error,
                 duration,
+                ..
             } => {
                 renderer.tool_end(&name, &result, is_error, duration);
             }
