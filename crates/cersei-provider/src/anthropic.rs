@@ -7,8 +7,12 @@ use tokio::sync::mpsc;
 
 const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
-const ANTHROPIC_BETA_HEADER: &str =
-    "interleaved-thinking-2025-04-14,token-efficient-tools-2025-02-19";
+// `interleaved-thinking-2025-04-14` is a stale beta identifier the current
+// Anthropic API rejects with HTTP 400, breaking every request since this
+// header was sent unconditionally. Extended thinking still works via the
+// `thinking` body parameter, which needs no beta header. See
+// https://github.com/pacifio/cersei/issues/20.
+const ANTHROPIC_BETA_HEADER: &str = "token-efficient-tools-2025-02-19";
 
 // ─── Anthropic provider ──────────────────────────────────────────────────────
 
@@ -405,5 +409,20 @@ impl AnthropicBuilder {
             max_retries: self.max_retries.unwrap_or(5),
             client: reqwest::Client::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn beta_header_omits_stale_interleaved_thinking_identifier() {
+        // `interleaved-thinking-2025-04-14` is rejected by the current
+        // Anthropic API with HTTP 400, breaking every request since this
+        // header is sent unconditionally. See
+        // https://github.com/pacifio/cersei/issues/20.
+        assert!(!ANTHROPIC_BETA_HEADER.contains("interleaved-thinking-2025-04-14"));
+        assert_eq!(ANTHROPIC_BETA_HEADER, "token-efficient-tools-2025-02-19");
     }
 }
